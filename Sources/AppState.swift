@@ -16,7 +16,7 @@ final class AppState: ObservableObject {
 
     init() {
         baseURL = UserDefaults.standard.string(forKey: "rc.base") ?? "https://110.42.185.227:18888"
-        token = UserDefaults.standard.string(forKey: "rc.token") ?? ""
+        token = UserDefaults.standard.string(forKey: "rc.token") ?? "dc37f94344820df49639306cf9eae76c99e195d3a417ad36"
         Agent.shared.configure(base: baseURL, token: token)
     }
 
