@@ -1,0 +1,46 @@
+name: build-ipa
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install xcodegen
+        run: brew install xcodegen
+
+      - name: Generate project
+        run: xcodegen generate
+
+      - name: Build (unsigned)
+        run: |
+          xcodebuild -project RCController.xcodeproj \
+            -scheme RCController \
+            -configuration Release \
+            -sdk iphoneos \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            build | tee build.log | tail -40
+
+      - name: Package IPA
+        run: |
+          APP=$(find build/Build/Products/Release-iphoneos -maxdepth 1 -name "*.app" | head -1)
+          echo "APP=$APP"
+          mkdir -p out/Payload
+          cp -R "$APP" out/Payload/
+          cd out
+          zip -qry "远程控制_V1.ipa" Payload
+          ls -lh
+          /usr/libexec/PlistBuddy -c "Print :CFBundleDisplayName" "Payload/$(basename "$APP")/Info.plist" || true
+          /usr/libexec/PlistBuddy -c "Print :CFBundleIcons" "Payload/$(basename "$APP")/Info.plist" || true
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ipa
+          path: out/*.ipa
+          if-no-files-found: error
