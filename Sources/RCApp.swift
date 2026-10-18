@@ -23,13 +23,8 @@ struct RCApp: App {
                 if state.token.isEmpty {
                     ConnectView()
                 } else if crashedAtLaunch && !skipDiag {
-                    DiagView()
+                    DiagView(onEnter: { skipDiag = true })
                         .onAppear { Diag.mark("diag-view") }
-                        .overlay(alignment: .bottom) {
-                            Button("仍然进入主界面") { skipDiag = true }
-                                .font(.system(size: 11))
-                                .padding(.bottom, 24)
-                        }
                 } else {
                     RootView()
                 }

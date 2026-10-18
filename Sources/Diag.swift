@@ -63,8 +63,7 @@ enum Diag {
 }
 
 struct DiagView: View {
-    @EnvironmentObject var app: AppState
-    @State private var entered = false
+    var onEnter: () -> Void = {}
     @State private var reported = false
 
     var body: some View {
@@ -110,7 +109,7 @@ struct DiagView: View {
                         .clipShape(RoundedRectangle(cornerRadius: 10))
                 }
                 Button {
-                    entered = true
+                    onEnter()
                 } label: {
                     Text("仍要进入主界面")
                         .font(.system(size: 13, weight: .semibold))
