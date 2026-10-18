@@ -21,7 +21,12 @@ final class ScreenStream: NSObject, ObservableObject, URLSessionDataDelegate {
     private var stopping = false
 
     func setPreview(_ img: UIImage) {
-        if image == nil { DispatchQueue.main.async { self.image = img } }
+        DispatchQueue.main.async { if self.image == nil { self.image = img } }
+    }
+
+    /// 兜底轮询用：推流没接上时持续刷新
+    func setPolled(_ img: UIImage) {
+        DispatchQueue.main.async { if !self.connected { self.image = img } }
     }
 
     func start(max: Int = 720, q: Int = 58, fps: Int = 10) {

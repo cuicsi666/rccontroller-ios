@@ -43,7 +43,7 @@ struct ScreenView: View {
                 if stream.connected && stream.image != nil { return }
                 do {
                     let img = try await Agent.shared.screenshot(max: app.streamMaxWidth, quality: app.streamQualityParam)
-                    if stream.image == nil { stream.setPreview(img) }
+                    stream.setPolled(img)
                     if i == 0 { Diag.mark("preview-ok") }
                 } catch {
                     if i == 0 { Diag.err("preview: \(app.friendly(error))") }
