@@ -12,6 +12,7 @@ struct ScreenView: View {
     @State private var pressStartTime: Date?
     @State private var busy = false
     @State private var lastTapAt: Date = .distantPast
+    @State private var pollTask: Task<Void, Never>?
 
     var body: some View {
         VStack(spacing: 8) {
@@ -31,6 +32,25 @@ struct ScreenView: View {
         }
         .sheet(isPresented: $showTextInput) { textSheet }
         .overlay(alignment: .top) { toastView }
+    }
+
+    /// 推流还没出画面时用轮询兜底，保证 1 秒内能看到画面
+    private func startFallbackPolling() {
+        pollTask?.cancel()
+        pollTask = Task {
+            for i in 0..<40 {
+                if Task.isCancelled { return }
+                if stream.connected && stream.image != nil { return }
+                do {
+                    let img = try await Agent.shared.screenshot(max: app.streamMaxWidth, quality: app.streamQualityParam)
+                    if stream.image == nil { stream.setPreview(img) }
+                    if i == 0 { Diag.mark("preview-ok") }
+                } catch {
+                    if i == 0 { Diag.err("preview: \(app.friendly(error))") }
+                }
+                try? await Task.sleep(nanoseconds: 700_000_000)
+            }
+        }
     }
 
     private func startStream() {

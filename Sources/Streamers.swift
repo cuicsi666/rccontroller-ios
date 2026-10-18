@@ -100,6 +100,8 @@ final class ScreenStream: NSObject, ObservableObject, URLSessionDataDelegate {
     }
 
     func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+        // 旧会话被主动 cancel 时不要触发重连
+        if task !== self.task { return }
         DispatchQueue.main.async {
             self.connected = false
             if let e = error, !self.stopping {
