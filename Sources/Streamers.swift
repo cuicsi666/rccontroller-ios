@@ -13,6 +13,7 @@ final class ScreenStream: NSObject, ObservableObject, URLSessionDataDelegate {
     private var task: URLSessionDataTask?
     private var buffer = Data()
     private var frames = 0
+    private var firstFrameMarked = false
     private var lastTick = Date()
     private let lock = NSLock()
     private var stopping = false
@@ -75,6 +76,10 @@ final class ScreenStream: NSObject, ObservableObject, URLSessionDataDelegate {
         }
         lock.unlock()
         guard let last = images.last else { return }
+        if !firstFrameMarked {
+            firstFrameMarked = true
+            Diag.mark("frame-1")
+        }
         DispatchQueue.main.async {
             self.image = last
             self.connected = true
