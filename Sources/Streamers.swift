@@ -44,6 +44,17 @@ final class ScreenStream: NSObject, ObservableObject, URLSessionDataDelegate {
         DispatchQueue.main.async { self.connected = false }
     }
 
+
+    // 自签证书放行（推流用的是独立 URLSession，必须自己处理挑战）
+    func urlSession(_ session: URLSession, didReceive challenge: URLAuthenticationChallenge,
+                    completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
+        guard let trust = challenge.protectionSpace.serverTrust else {
+            completionHandler(.performDefaultHandling, nil)
+            return
+        }
+        completionHandler(.useCredential, URLCredential(trust: trust))
+    }
+
     func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
         lock.lock()
         buffer.append(data)
@@ -158,6 +169,17 @@ final class AudioStreamer: NSObject, ObservableObject, URLSessionDataDelegate {
             self.playing = false
             self.level = 0
         }
+    }
+
+
+    // 自签证书放行（推流用的是独立 URLSession，必须自己处理挑战）
+    func urlSession(_ session: URLSession, didReceive challenge: URLAuthenticationChallenge,
+                    completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
+        guard let trust = challenge.protectionSpace.serverTrust else {
+            completionHandler(.performDefaultHandling, nil)
+            return
+        }
+        completionHandler(.useCredential, URLCredential(trust: trust))
     }
 
     func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
