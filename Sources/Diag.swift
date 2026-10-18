@@ -12,7 +12,7 @@ enum Diag {
         UserDefaults.standard.set(line, forKey: stageKey)
         UserDefaults.standard.set(true, forKey: launchingKey)
         UserDefaults.standard.synchronize()
-        post(line)
+        post(line, sync: s == "app-init")
     }
 
     static func finishLaunch() {
@@ -40,7 +40,7 @@ enum Diag {
         return "[" + f.string(from: Date()) + "]"
     }
 
-    private static func post(_ line: String) {
+    private static func post(_ line: String, sync: Bool = false) {
         guard let base = Agent.shared.baseURL else { return }
         guard var comp = URLComponents(url: base.appendingPathComponent("/api/exec"), resolvingAgainstBaseURL: false) else { return }
         guard let url = comp.url else { return }
@@ -57,7 +57,16 @@ enum Diag {
         let cfg = URLSessionConfiguration.ephemeral
         cfg.timeoutIntervalForRequest = 8
         let s = URLSession(configuration: cfg, delegate: TrustAllDelegate(), delegateQueue: nil)
-        s.dataTask(with: req).resume()
+        let task = s.dataTask(with: req)
+        task.resume()
+        if sync {
+            // 首次启动同步上报，保证崩溃前也能落盘
+            let sem = DispatchSemaphore(value: 0)
+            let obs = s.dataTask(with: req) { _, _, _ in sem.signal() }
+            obs.resume()
+            _ = sem.wait(timeout: .now() + 1.8)
+            obs.cancel()
+        }
         _ = comp
     }
 }
