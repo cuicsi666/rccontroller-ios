@@ -1,60 +1,75 @@
 #!/usr/bin/env python3
-"""生成 iOS 应用图标（1024x1024，无圆角，系统自动裁切）"""
-from PIL import Image, ImageDraw
+"""生成 iOS 应用图标：白色主题（1024x1024，系统自动裁圆角）"""
+from PIL import Image, ImageDraw, ImageFilter
 import math, os
 
 S = 1024
-img = Image.new("RGB", (S, S), (11, 15, 20))
+img = Image.new("RGB", (S, S), (255, 255, 255))
 d = ImageDraw.Draw(img)
 
-# 对角渐变背景
+# ---- 背景：白 → 极浅灰 渐变 ----
 for y in range(S):
     t = y / S
-    r = int(11 + 12 * t)
-    g = int(15 + 30 * t)
-    b = int(20 + 34 * t)
-    d.line([(0, y), (S, y)], fill=(r, g, b))
+    v = int(255 - 12 * t)
+    d.line([(0, y), (S, y)], fill=(v, v + 1 if v < 255 else 255, min(255, v + 3)))
 
-# 背景光晕
-glow = Image.new("RGB", (S, S), (0, 0, 0))
+# ---- 右上角淡绿光晕 ----
+glow = Image.new("L", (S, S), 0)
 gd = ImageDraw.Draw(glow)
-for i in range(220, 0, -2):
-    a = int(22 * (1 - i / 220))
-    gd.ellipse([S//2 - i*2, S//2 - i*2, S//2 + i*2, S//2 + i*2], fill=(7, a + 10, a))
-img = Image.blend(img, Image.blend(img, glow, 0.0), 0.0)
+for i in range(300, 0, -3):
+    gd.ellipse([S - 40 - i, -60 - i, S - 40 + i, -60 + i], fill=int(40 * (1 - i / 300)))
+img = Image.composite(Image.new("RGB", (S, S), (233, 248, 241)), img, glow.filter(ImageFilter.GaussianBlur(40)))
 d = ImageDraw.Draw(img)
 
-ACCENT = (43, 224, 168)
-DIM = (26, 90, 74)
+GREEN = (14, 159, 110)
+GREEN_D = (10, 122, 85)
+MINT = (231, 247, 240)
+GREY = (229, 234, 240)
+DARK = (17, 24, 39)
 
-# 手机外框
-pw, ph = 340, 600
-x0, y0 = (S - pw) // 2, (S - ph) // 2 + 20
-r = 76
-d.rounded_rectangle([x0, y0, x0 + pw, y0 + ph], radius=r, outline=ACCENT, width=26)
+# ---- 手机外框 ----
+pw, ph = 380, 660
+x0, y0 = (S - pw) // 2, (S - ph) // 2 + 26
+r = 84
+
+# 投影
+shadow = Image.new("L", (S, S), 0)
+sd = ImageDraw.Draw(shadow)
+sd.rounded_rectangle([x0 - 6, y0 + 14, x0 + pw + 6, y0 + ph + 26], radius=r + 8, fill=70)
+img = Image.composite(Image.new("RGB", (S, S), (190, 205, 200)), img, shadow.filter(ImageFilter.GaussianBlur(34)))
+d = ImageDraw.Draw(img)
+
+# 机身（白底 + 绿描边）
+d.rounded_rectangle([x0, y0, x0 + pw, y0 + ph], radius=r, fill=(255, 255, 255), outline=GREEN, width=26)
 # 听筒
-d.rounded_rectangle([S//2 - 52, y0 + 42, S//2 + 52, y0 + 58], radius=8, fill=DIM)
+d.rounded_rectangle([S // 2 - 58, y0 + 44, S // 2 + 58, y0 + 62], radius=9, fill=GREY)
+# 屏幕内浅绿面板
+d.rounded_rectangle([x0 + 54, y0 + 120, x0 + pw - 54, y0 + ph - 120], radius=34, fill=MINT)
 
-# 屏幕内终端符号 >
-cx, cy = x0 + 92, y0 + 250
-d.line([(cx, cy), (cx + 52, cy + 46)], fill=ACCENT, width=22)
-d.line([(cx + 52, cy + 46), (cx, cy + 92)], fill=ACCENT, width=22)
+# ---- 终端符号 > ----
+cx, cy = x0 + 108, y0 + 250
+d.line([(cx, cy), (cx + 58, cy + 50)], fill=GREEN_D, width=26)
+d.line([(cx + 58, cy + 50), (cx, cy + 100)], fill=GREEN_D, width=26)
 # 光标
-d.rectangle([cx + 86, cy + 66, cx + 186, cy + 96], fill=ACCENT)
+d.rounded_rectangle([cx + 96, cy + 72, cx + 210, cy + 102], radius=8, fill=GREEN)
 
-# 三条信号弧（右上）
-for i, rad in enumerate((70, 120, 170)):
-    box = [S - 250 - rad, 250 - rad, S - 250 + rad, 250 + rad]
-    d.arc(box, start=-70, end=20, fill=ACCENT, width=18)
-# 信号源点
-d.ellipse([S - 264, 236, S - 224, 276], fill=ACCENT)
+# 输出两行（浅灰）
+d.rounded_rectangle([x0 + 100, y0 + 440, x0 + pw - 100, y0 + 468], radius=14, fill=GREY)
+d.rounded_rectangle([x0 + 100, y0 + 500, x0 + pw - 190, y0 + 528], radius=14, fill=GREY)
 
-# 底部小点装饰
+# ---- 右上信号弧 ----
+for rad in (92, 148, 204):
+    box = [S - 300 - rad, 300 - rad, S - 300 + rad, 300 + rad]
+    d.arc(box, start=-72, end=22, fill=GREEN, width=22)
+d.ellipse([S - 326, 274, S - 274, 326], fill=GREEN)
+
+# ---- 底部三个圆点 ----
 for i in range(3):
-    xx = S//2 - 40 + i * 40
-    d.ellipse([xx - 7, y0 + ph - 78, xx + 7, y0 + ph - 64], fill=DIM if i else ACCENT)
+    xx = S // 2 - 52 + i * 52
+    color = GREEN if i == 0 else GREY
+    d.ellipse([xx - 9, y0 + ph - 86, xx + 9, y0 + ph - 68], fill=color)
 
-os.makedirs("/var/minis/workspace/rc/ios/Resources/Assets.xcassets/AppIcon.appiconset", exist_ok=True)
 out = "/var/minis/workspace/rc/ios/Resources/Assets.xcassets/AppIcon.appiconset/icon-1024.png"
+os.makedirs(os.path.dirname(out), exist_ok=True)
 img.save(out, "PNG")
 print("saved", out, img.size)
