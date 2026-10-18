@@ -85,6 +85,7 @@ struct RootView: View {
         }
         .task {
             Diag.mark("root-task")
+            try? await Agent.shared.key("wake")
             await app.connect()
             sms.start()
             try? await Task.sleep(nanoseconds: 2_500_000_000)
