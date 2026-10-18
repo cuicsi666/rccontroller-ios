@@ -52,7 +52,7 @@ struct ToolsView: View {
         }
         .background(Theme.bg.ignoresSafeArea())
         .refreshable { await reloadAll() }
-        .task { Diag.mark("tools-task"); await reloadAll(); Diag.mark("tools-loaded") }
+        .task { await reloadAll() }
         .sheet(isPresented: $showTerminal) {
             NavigationView {
                 TerminalView()

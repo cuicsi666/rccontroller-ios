@@ -76,3 +76,8 @@ struct PresetItem: Identifiable {
     var label: String
     var value: String
 }
+
+
+extension Notification.Name {
+    static let rcForeground = Notification.Name("rc.foreground")
+}

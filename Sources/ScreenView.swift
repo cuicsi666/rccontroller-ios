@@ -22,9 +22,13 @@ struct ScreenView: View {
         .padding(.horizontal, 10)
         .padding(.bottom, 6)
         .background(Theme.bg.ignoresSafeArea())
-        .onAppear { Diag.mark("stream-onAppear"); startStream() }
+        
         .onDisappear { stream.stop() }
         .onChange(of: app.quality) { _ in startStream() }
+        .onReceive(NotificationCenter.default.publisher(for: .rcForeground)) { _ in
+            startStream()
+            if audio.playing { audio.start(mutePhone: true) }
+        }
         .sheet(isPresented: $showTextInput) { textSheet }
         .overlay(alignment: .top) { toastView }
     }

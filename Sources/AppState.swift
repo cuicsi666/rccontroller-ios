@@ -51,6 +51,7 @@ final class AppState: ObservableObject {
         } catch {
             connected = false
             lastError = friendly(error)
+            Diag.err("connect: \(lastError ?? "")")
         }
     }
 

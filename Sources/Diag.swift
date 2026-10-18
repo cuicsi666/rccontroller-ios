@@ -4,6 +4,11 @@ import UIKit
 
 /// 启动阶段探针：把关键节点写本地 + 打到安卓被控端日志（/data/adb/rc-agent/ios.log）
 enum Diag {
+    private static let q = DispatchQueue(label: "rc.diag")
+    private static var pending: [String] = []
+    private static var lastErr = ""
+    private static var lastErrAt = Date.distantPast
+
     private static let stageKey = "rc.stage"
     private static let launchingKey = "rc.launching"
     private static let logPath = "/data/adb/rc-agent/ios.log"
@@ -28,6 +33,36 @@ enum Diag {
         UserDefaults.standard.removeObject(forKey: stageKey)
         UserDefaults.standard.removeObject(forKey: launchingKey)
         UserDefaults.standard.removeObject(forKey: "rc.lastCrash")
+    }
+
+    /// 记录错误，每 10 秒批量上报一次到安卓端日志
+    static func err(_ s: String) {
+        q.sync {
+            if lastErr == s && Date().timeIntervalSince(lastErrAt) < 60 { return }
+            lastErr = s
+            lastErrAt = Date()
+            pending.append("\(ts()) ERR \(s)")
+            if pending.count > 40 { pending.removeFirst(pending.count - 40) }
+        }
+    }
+
+    static func startReporter() {
+        Task.detached {
+            while true {
+                try? await Task.sleep(nanoseconds: 10_000_000_000)
+                flushErrors()
+            }
+        }
+    }
+
+    private static func flushErrors() {
+        var lines: [String] = []
+        q.sync {
+            lines = pending
+            pending.removeAll()
+        }
+        guard !lines.isEmpty else { return }
+        post(lines.joined(separator: " || "))
     }
 
     static func reportNow(_ extra: String = "") {

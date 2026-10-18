@@ -3,13 +3,10 @@ import SwiftUI
 @main
 struct RCApp: App {
     @StateObject private var state = AppState()
-    @State private var crashedAtLaunch: Bool
-    @State private var skipDiag = false
 
     init() {
-        let crashed = Diag.crashedLastTime
-        _crashedAtLaunch = State(initialValue: crashed)
         Diag.mark("app-init")
+        Diag.startReporter()
         // 捕获 Objective-C 异常，留存到下次启动查看
         NSSetUncaughtExceptionHandler { ex in
             let text = "\(ex.name.rawValue) \(ex.reason ?? "")\n" + ex.callStackSymbols.joined(separator: "\n")
@@ -22,9 +19,6 @@ struct RCApp: App {
             Group {
                 if state.token.isEmpty {
                     ConnectView()
-                } else if crashedAtLaunch && !skipDiag {
-                    DiagView(onEnter: { skipDiag = true })
-                        .onAppear { Diag.mark("diag-view") }
                 } else {
                     RootView()
                 }
@@ -36,6 +30,8 @@ struct RCApp: App {
 }
 
 struct RootView: View {
+    @Environment(\.scenePhase) private var scenePhase
+    @State private var backgroundedAt: Date?
     @EnvironmentObject var app: AppState
     @StateObject private var sms = SMSStore()
     @State private var tab = 0
@@ -53,14 +49,14 @@ struct RootView: View {
                 ScreenView()
                     .tabItem { Label("屏幕", systemImage: "iphone.gen3") }
                     .tag(0)
-                    .onAppear { Diag.mark("tab-screen") }
+                    
                 ToolsView()
                     .tabItem { Label("工具", systemImage: "square.grid.2x2") }
                     .tag(1)
-                    .onAppear { Diag.mark("tab-tools") }
+                    
                 SMSView()
                     .tabItem { Label("短信", systemImage: "message") }
-                    .onAppear { Diag.mark("tab-sms") }
+                    
                     .badge(sms.unread > 0 ? sms.unread : 0)
                     .tag(2)
             }
@@ -70,13 +66,27 @@ struct RootView: View {
         .background(Theme.bg.ignoresSafeArea())
         .preferredColorScheme(.light)
         .sheet(isPresented: $showSettings) { SettingsView() }
-        .onAppear { Diag.mark("root-appear") }
+        .onChange(of: scenePhase) { phase in
+            if phase == .background {
+                backgroundedAt = Date()
+            } else if phase == .active {
+                let away = Date().timeIntervalSince(backgroundedAt ?? Date())
+                backgroundedAt = nil
+                if away > 10 {
+                    Diag.mark("foreground-\(Int(away))s")
+                    Task {
+                        // 从后台回来：唤醒屏幕 + 刷新状态 + 重建推流
+                        try? await Agent.shared.key("wake")
+                        await app.refreshInfo()
+                        NotificationCenter.default.post(name: .rcForeground, object: nil)
+                    }
+                }
+            }
+        }
         .task {
             Diag.mark("root-task")
             await app.connect()
-            Diag.mark("info-ok")
             sms.start()
-            Diag.mark("sms-start")
             try? await Task.sleep(nanoseconds: 2_500_000_000)
             Diag.finishLaunch()
             Diag.mark("launch-ok")

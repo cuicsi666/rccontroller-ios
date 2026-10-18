@@ -76,10 +76,6 @@ final class ScreenStream: NSObject, ObservableObject, URLSessionDataDelegate {
         }
         lock.unlock()
         guard let last = images.last else { return }
-        if !firstFrameMarked {
-            firstFrameMarked = true
-            Diag.mark("frame-1")
-        }
         DispatchQueue.main.async {
             self.image = last
             self.connected = true
@@ -100,6 +96,7 @@ final class ScreenStream: NSObject, ObservableObject, URLSessionDataDelegate {
             self.connected = false
             if let e = error, !self.stopping {
                 self.error = e.localizedDescription
+                Diag.err("stream: \(e.localizedDescription)")
             }
         }
     }
@@ -233,6 +230,7 @@ final class AudioStreamer: NSObject, ObservableObject, URLSessionDataDelegate {
         DispatchQueue.main.async {
             if let e = error, !self.stopping {
                 self.error = e.localizedDescription
+                Diag.err("stream: \(e.localizedDescription)")
             }
         }
     }
