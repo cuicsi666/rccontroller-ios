@@ -19,6 +19,7 @@ jobs:
 
       - name: Build (unsigned)
         run: |
+          set -o pipefail
           xcodebuild -project RCController.xcodeproj \
             -scheme RCController \
             -configuration Release \
