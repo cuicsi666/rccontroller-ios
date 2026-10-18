@@ -22,7 +22,7 @@ struct ScreenView: View {
         .padding(.horizontal, 10)
         .padding(.bottom, 6)
         .background(Theme.bg.ignoresSafeArea())
-        .onAppear { startStream() }
+        .onAppear { Diag.mark("stream-onAppear"); startStream() }
         .onDisappear { stream.stop() }
         .onChange(of: app.quality) { _ in startStream() }
         .sheet(isPresented: $showTextInput) { textSheet }

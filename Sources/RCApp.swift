@@ -73,7 +73,9 @@ struct RootView: View {
         .task {
             Diag.mark("root-task")
             await app.connect()
+            Diag.mark("info-ok")
             sms.start()
+            Diag.mark("sms-start")
             try? await Task.sleep(nanoseconds: 2_500_000_000)
             Diag.finishLaunch()
             Diag.mark("launch-ok")

@@ -60,14 +60,16 @@ final class ScreenStream: NSObject, ObservableObject, URLSessionDataDelegate {
         buffer.append(data)
         var images: [UIImage] = []
         while buffer.count >= 4 {
-            let len = buffer.withUnsafeBytes { $0.load(as: UInt32.self).bigEndian }
-            let n = Int(len)
-            if n == 0 {
+            let base = buffer.startIndex
+            // 逐字节拼长度：Data 切片不保证 4 字节对齐，用 load(as:) 会崩溃
+            let n = (Int(buffer[base]) << 24) | (Int(buffer[base + 1]) << 16)
+                | (Int(buffer[base + 2]) << 8) | Int(buffer[base + 3])
+            if n <= 0 {
                 buffer.removeFirst(4)
                 continue
             }
             if buffer.count < 4 + n { break }
-            let jpeg = buffer.subdata(in: 4..<(4 + n))
+            let jpeg = buffer.subdata(in: (base + 4)..<(base + 4 + n))
             buffer.removeFirst(4 + n)
             if let img = UIImage(data: jpeg) { images.append(img) }
         }
@@ -202,15 +204,20 @@ final class AudioStreamer: NSObject, ObservableObject, URLSessionDataDelegate {
         guard frames > 0, let buf = AVAudioPCMBuffer(pcmFormat: fmt, frameCapacity: AVAudioFrameCount(frames)) else { return }
         buf.frameLength = AVAudioFrameCount(frames)
         data.withUnsafeBytes { raw in
-            if let dst = buf.int16ChannelData?[0], let src = raw.bindMemory(to: Int16.self).baseAddress {
+            if let dst = buf.int16ChannelData?[0], let src = raw.baseAddress {
                 memcpy(dst, src, data.count)
             }
         }
-        // 简单电平
+        // 简单电平（逐字节，避免非对齐访问）
         var peak: Int32 = 0
         data.withUnsafeBytes { raw in
-            let s = raw.bindMemory(to: Int16.self)
-            for v in s { peak = max(peak, abs(Int32(v))) }
+            guard let p = raw.bindMemory(to: UInt8.self).baseAddress else { return }
+            var i = 0
+            while i + 1 < raw.count {
+                let v = (Int32(Int8(bitPattern: p[i + 1])) << 8) | Int32(p[i])
+                peak = max(peak, abs(v))
+                i += 2
+            }
         }
         let lv = Double(peak) / 32768.0
         DispatchQueue.main.async { self.level = lv }
