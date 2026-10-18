@@ -50,7 +50,7 @@ struct RootView: View {
                     .tabItem { Label("屏幕", systemImage: "iphone.gen3") }
                     .tag(0)
                     
-                ToolsView()
+                ToolsView(active: tab == 1)
                     .tabItem { Label("工具", systemImage: "square.grid.2x2") }
                     .tag(1)
                     

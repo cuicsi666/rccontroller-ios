@@ -14,13 +14,21 @@ final class ScreenStream: NSObject, ObservableObject, URLSessionDataDelegate {
     private var buffer = Data()
     private var frames = 0
     private var firstFrameMarked = false
+    private var retries = 0
+    private var config = (max: 720, q: 58, fps: 10)
     private var lastTick = Date()
     private let lock = NSLock()
     private var stopping = false
 
+    func setPreview(_ img: UIImage) {
+        if image == nil { DispatchQueue.main.async { self.image = img } }
+    }
+
     func start(max: Int = 720, q: Int = 58, fps: Int = 10) {
         stop()
         stopping = false
+        config = (max, q, fps)
+        retries = 0
         do {
             let req = try Agent.shared.streamURL(max: max, q: q, fps: fps)
             let cfg = URLSessionConfiguration.default
@@ -97,6 +105,15 @@ final class ScreenStream: NSObject, ObservableObject, URLSessionDataDelegate {
             if let e = error, !self.stopping {
                 self.error = e.localizedDescription
                 Diag.err("stream: \(e.localizedDescription)")
+            }
+            // 意外断开：1.5 秒后自动重连（最多 5 次）
+            if !self.stopping && self.retries < 5 {
+                self.retries += 1
+                let cfg = self.config
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
+                    guard let self = self, !self.stopping else { return }
+                    self.start(max: cfg.max, q: cfg.q, fps: cfg.fps)
+                }
             }
         }
     }

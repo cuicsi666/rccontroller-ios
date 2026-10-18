@@ -2,6 +2,7 @@ import SwiftUI
 import UIKit
 
 struct ToolsView: View {
+    var active: Bool = false
     @EnvironmentObject var app: AppState
 
     // 设备
@@ -32,6 +33,7 @@ struct ToolsView: View {
     @State private var confirmReboot = false
     @State private var busy = false
     @State private var showTerminal = false
+    @State private var loadedOnce = false
 
     var body: some View {
         ScrollView {
@@ -52,7 +54,11 @@ struct ToolsView: View {
         }
         .background(Theme.bg.ignoresSafeArea())
         .refreshable { await reloadAll() }
-        .task { await reloadAll() }
+        .task(id: active) {
+            guard active, !loadedOnce else { return }
+            loadedOnce = true
+            await reloadAll()
+        }
         .sheet(isPresented: $showTerminal) {
             NavigationView {
                 TerminalView()
