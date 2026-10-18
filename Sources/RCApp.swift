@@ -3,8 +3,13 @@ import SwiftUI
 @main
 struct RCApp: App {
     @StateObject private var state = AppState()
+    @State private var crashedAtLaunch: Bool
+    @State private var skipDiag = false
 
     init() {
+        let crashed = Diag.crashedLastTime
+        _crashedAtLaunch = State(initialValue: crashed)
+        Diag.mark("app-init")
         // 捕获 Objective-C 异常，留存到下次启动查看
         NSSetUncaughtExceptionHandler { ex in
             let text = "\(ex.name.rawValue) \(ex.reason ?? "")\n" + ex.callStackSymbols.joined(separator: "\n")
@@ -17,6 +22,14 @@ struct RCApp: App {
             Group {
                 if state.token.isEmpty {
                     ConnectView()
+                } else if crashedAtLaunch && !skipDiag {
+                    DiagView()
+                        .onAppear { Diag.mark("diag-view") }
+                        .overlay(alignment: .bottom) {
+                            Button("仍然进入主界面") { skipDiag = true }
+                                .font(.system(size: 11))
+                                .padding(.bottom, 24)
+                        }
                 } else {
                     RootView()
                 }
@@ -43,14 +56,18 @@ struct RootView: View {
                 ScreenView()
                     .tabItem { Label("屏幕", systemImage: "iphone.gen3") }
                     .tag(0)
+                    .onAppear { Diag.mark("tab-screen") }
                 TerminalView()
                     .tabItem { Label("终端", systemImage: "terminal") }
                     .tag(1)
+                    .onAppear { Diag.mark("tab-terminal") }
                 ToolsView()
                     .tabItem { Label("工具", systemImage: "square.grid.2x2") }
                     .tag(2)
+                    .onAppear { Diag.mark("tab-tools") }
                 SMSView()
                     .tabItem { Label("短信", systemImage: "message") }
+                    .onAppear { Diag.mark("tab-sms") }
                     .badge(sms.unread > 0 ? sms.unread : 0)
                     .tag(3)
             }
@@ -59,9 +76,14 @@ struct RootView: View {
         .background(Theme.bg.ignoresSafeArea())
         .preferredColorScheme(.light)
         .sheet(isPresented: $showSettings) { SettingsView() }
+        .onAppear { Diag.mark("root-appear") }
         .task {
+            Diag.mark("root-task")
             await app.connect()
             sms.start()
+            try? await Task.sleep(nanoseconds: 2_500_000_000)
+            Diag.finishLaunch()
+            Diag.mark("launch-ok")
         }
     }
 
