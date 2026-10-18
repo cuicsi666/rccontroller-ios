@@ -40,6 +40,8 @@ struct RootView: View {
     @StateObject private var sms = SMSStore()
     @State private var tab = 0
     @State private var showSettings = false
+    @State private var stats: LiveStats?
+    @State private var latency = 0
 
     var body: some View {
         VStack(spacing: 0) {
@@ -52,19 +54,15 @@ struct RootView: View {
                     .tabItem { Label("屏幕", systemImage: "iphone.gen3") }
                     .tag(0)
                     .onAppear { Diag.mark("tab-screen") }
-                TerminalView()
-                    .tabItem { Label("终端", systemImage: "terminal") }
-                    .tag(1)
-                    .onAppear { Diag.mark("tab-terminal") }
                 ToolsView()
                     .tabItem { Label("工具", systemImage: "square.grid.2x2") }
-                    .tag(2)
+                    .tag(1)
                     .onAppear { Diag.mark("tab-tools") }
                 SMSView()
                     .tabItem { Label("短信", systemImage: "message") }
                     .onAppear { Diag.mark("tab-sms") }
                     .badge(sms.unread > 0 ? sms.unread : 0)
-                    .tag(3)
+                    .tag(2)
             }
             .accentColor(Theme.accent)
         }
@@ -83,44 +81,137 @@ struct RootView: View {
     }
 
     private var header: some View {
-        HStack(spacing: 10) {
-            ZStack {
-                RoundedRectangle(cornerRadius: 9)
-                    .fill(Theme.accent.opacity(0.12))
-                    .frame(width: 34, height: 34)
-                Image(systemName: "dot.radiowaves.left.and.right")
-                    .font(.system(size: 15, weight: .bold))
-                    .foregroundColor(Theme.accent)
-            }
-            VStack(alignment: .leading, spacing: 2) {
-                Text(app.deviceInfo?.displayModel ?? "远程被控端")
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundColor(Theme.text)
-                    .lineLimit(1)
-                HStack(spacing: 5) {
-                    if let a = app.deviceInfo?.android, !a.isEmpty {
-                        Text("Android \(a)").font(.system(size: 10)).foregroundColor(Theme.dim)
-                    }
-                    if app.deviceInfo?.root == true { TagView(text: "ROOT") }
-                    if let t = app.deviceInfo?.tunnel, t.connected == true {
-                        TagView(text: "隧道在线", color: Theme.blue)
+        VStack(spacing: 8) {
+            HStack(spacing: 10) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 9)
+                        .fill(Theme.accent.opacity(0.12))
+                        .frame(width: 34, height: 34)
+                    Image(systemName: "dot.radiowaves.left.and.right")
+                        .font(.system(size: 15, weight: .bold))
+                        .foregroundColor(Theme.accent)
+                }
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(app.deviceInfo?.displayModel ?? "远程被控端")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundColor(Theme.text)
+                        .lineLimit(1)
+                    HStack(spacing: 5) {
+                        if let a = app.deviceInfo?.android, !a.isEmpty {
+                            Text("Android \(a)").font(.system(size: 10)).foregroundColor(Theme.dim)
+                        }
+                        if app.deviceInfo?.root == true { TagView(text: "ROOT") }
                     }
                 }
+                Spacer()
+                HStack(spacing: 4) {
+                    Circle().fill(app.connected ? Theme.green : Theme.red).frame(width: 7, height: 7)
+                    Text(app.connected ? "已连接" : "未连接")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundColor(app.connected ? Theme.green : Theme.red)
+                    if latency > 0 {
+                        Text("\(latency)ms")
+                            .font(.system(size: 9, design: .monospaced))
+                            .foregroundColor(Theme.dim)
+                    }
+                }
+                Button { showSettings = true } label: {
+                    Image(systemName: "gearshape")
+                        .font(.system(size: 17))
+                        .foregroundColor(Theme.sub)
+                }
             }
-            Spacer()
-            Circle()
-                .fill(app.connected ? Theme.green : Theme.red)
-                .frame(width: 8, height: 8)
-            Button { showSettings = true } label: {
-                Image(systemName: "gearshape")
-                    .font(.system(size: 17))
-                    .foregroundColor(Theme.sub)
+
+            HStack(spacing: 0) {
+                metric("battery.75", batteryText, "电量", batteryColor)
+                divider
+                metric("cpu", cpuText, "CPU", Theme.text)
+                divider
+                metric("memorychip", memText, "内存", Theme.text)
+                divider
+                metric("thermometer.medium", tempText, "温度", tempColor)
             }
+            .padding(.vertical, 6)
+            .background(Theme.fill.opacity(0.7))
+            .clipShape(RoundedRectangle(cornerRadius: 10))
         }
         .padding(.horizontal, 14)
-        .padding(.vertical, 10)
+        .padding(.top, 10)
+        .padding(.bottom, 8)
         .background(Theme.card)
         .overlay(Rectangle().frame(height: 1).foregroundColor(Theme.line), alignment: .bottom)
+        .task {
+            while !Task.isCancelled {
+                await refreshStats()
+                try? await Task.sleep(nanoseconds: 4_000_000_000)
+            }
+        }
+    }
+
+    private var divider: some View {
+        Rectangle().fill(Theme.line).frame(width: 1, height: 22)
+    }
+
+    private func metric(_ icon: String, _ value: String, _ label: String, _ color: Color) -> some View {
+        VStack(spacing: 2) {
+            HStack(spacing: 3) {
+                Image(systemName: icon)
+                    .font(.system(size: 9, weight: .medium))
+                    .foregroundColor(Theme.dim)
+                Text(value)
+                    .font(.system(size: 12, weight: .semibold, design: .rounded))
+                    .foregroundColor(color)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+            }
+            Text(label)
+                .font(.system(size: 9))
+                .foregroundColor(Theme.dim)
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    private var batteryText: String {
+        if let l = stats?.battery?.level { return "\(l)%" }
+        return "--"
+    }
+    private var batteryColor: Color {
+        if let l = stats?.battery?.level { return l < 20 ? Theme.red : Theme.text }
+        return Theme.text
+    }
+    private var cpuText: String {
+        if let u = stats?.cpu?.usage { return String(format: "%.0f%%", u) }
+        return "--"
+    }
+    private var memText: String {
+        guard let m = stats?.mem, let total = m.total_kb, total > 0 else { return "--" }
+        let usedGB = Double(total - (m.avail_kb ?? 0)) / 1024.0 / 1024.0
+        let totalGB = Double(total) / 1024.0 / 1024.0
+        return String(format: "%.1f/%.0fG", usedGB, totalGB)
+    }
+    private var tempText: String {
+        if let t = stats?.temp_c, t > 0 { return String(format: "%.0f°", t) }
+        if let t = stats?.battery?.temperature_c { return String(format: "%.0f°", t) }
+        return "--"
+    }
+    private var tempColor: Color {
+        guard let t = stats?.temp_c else { return Theme.text }
+        return t >= 55 ? Theme.red : (t >= 45 ? Theme.orange : Theme.text)
+    }
+
+    private func refreshStats() async {
+        let t0 = Date()
+        do {
+            let s = try await Agent.shared.stats()
+            let ms = Int(Date().timeIntervalSince(t0) * 1000)
+            await MainActor.run {
+                stats = s
+                latency = ms
+                app.connected = true
+            }
+        } catch {
+            await MainActor.run { latency = 0 }
+        }
     }
 
     private func errorBar(_ msg: String) -> some View {

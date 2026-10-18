@@ -85,6 +85,26 @@ struct SMSResponse: Codable {
 }
 
 struct VolumeEntry: Codable { var index: Int; var max: Int }
+
+struct CPUStat: Codable {
+    var usage: Double?
+    var cores: Int?
+    var load1: Double?
+}
+
+struct MemStat: Codable {
+    var total_kb: UInt64?
+    var avail_kb: UInt64?
+    var used_pct: Double?
+}
+
+struct LiveStats: Codable {
+    var battery: Battery?
+    var cpu: CPUStat?
+    var mem: MemStat?
+    var temp_c: Double?
+    var ts: Int64?
+}
 struct VolumeMap: Codable { }
 
 struct OTAStatus: Codable {
@@ -399,6 +419,8 @@ final class Agent {
         let r = try await send("/api/logcat?lines=\(lines)", as: ExecResult.self)
         return r.output ?? ""
     }
+
+    func stats() async throws -> LiveStats { try await send("/api/stats", as: LiveStats.self) }
 
     func otaStatus() async throws -> OTAStatus { try await send("/api/ota/status", as: OTAStatus.self) }
     func otaCheck() async throws -> OTAStatus { try await send("/api/ota/check", as: OTAStatus.self) }
