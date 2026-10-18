@@ -517,44 +517,6 @@ struct ToolsView: View {
         Task { try? await Agent.shared.setVolume(stream: stream, index: index) }
     }
 
-    // MARK: 终端入口
-
-    private var terminalCard: some View {
-        Card {
-            HStack(spacing: 12) {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 10)
-                        .fill(Theme.text.opacity(0.06))
-                        .frame(width: 38, height: 38)
-                    Image(systemName: "terminal")
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundColor(Theme.text)
-                }
-                VStack(alignment: .leading, spacing: 3) {
-                    Text("root 终端")
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundColor(Theme.text)
-                    Text("uid 0 执行命令 · 历史 / 收藏 / 脚本 / 后台任务")
-                        .font(.system(size: 10))
-                        .foregroundColor(Theme.dim)
-                        .lineLimit(1)
-                }
-                Spacer()
-                Button {
-                    showTerminal = true
-                } label: {
-                    Text("打开")
-                        .font(.system(size: 12, weight: .semibold))
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 8)
-                        .background(Theme.accent.opacity(0.12))
-                        .foregroundColor(Theme.accent)
-                        .clipShape(Capsule())
-                }
-            }
-        }
-    }
-
     // MARK: OTA 操作
 
     private func checkOTA() {
