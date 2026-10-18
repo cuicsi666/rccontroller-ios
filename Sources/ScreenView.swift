@@ -49,7 +49,7 @@ struct ScreenView: View {
             Button { showQuality = true } label: {
                 HStack(spacing: 3) {
                     Image(systemName: "slider.horizontal.3").font(.system(size: 12))
-                    Text(["流畅", "均衡", "高清"][min(app.quality, 2)]).font(.system(size: 11))
+                    Text(["流畅", "均衡", "高清"][min(max(app.quality, 0), 2)]).font(.system(size: 11))
                 }
                 .foregroundColor(Theme.accent)
             }

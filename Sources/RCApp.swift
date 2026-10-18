@@ -3,7 +3,14 @@ import SwiftUI
 @main
 struct RCApp: App {
     @StateObject private var state = AppState()
-    @StateObject private var smsStore = SMSStore()
+
+    init() {
+        // 捕获 Objective-C 异常，留存到下次启动查看
+        NSSetUncaughtExceptionHandler { ex in
+            let text = "\(ex.name.rawValue) \(ex.reason ?? "")\n" + ex.callStackSymbols.joined(separator: "\n")
+            UserDefaults.standard.set(text, forKey: "rc.lastCrash")
+        }
+    }
 
     var body: some Scene {
         WindowGroup {
@@ -12,7 +19,6 @@ struct RCApp: App {
                     ConnectView()
                 } else {
                     RootView()
-                        .environmentObject(smsStore)
                 }
             }
             .environmentObject(state)
@@ -23,7 +29,7 @@ struct RCApp: App {
 
 struct RootView: View {
     @EnvironmentObject var app: AppState
-    @EnvironmentObject var sms: SMSStore
+    @StateObject private var sms = SMSStore()
     @State private var tab = 0
     @State private var showSettings = false
 
