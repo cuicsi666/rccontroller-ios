@@ -1,72 +1,17 @@
 import SwiftUI
 import UIKit
 
-@MainActor
-final class ScreenStreamer: ObservableObject {
-    @Published var image: UIImage?
-    @Published var error: String?
-    @Published var running = false
-    @Published var latencyMS: Int = 0
-
-    private var task: Task<Void, Never>?
-
-    func start(intervalMS: Int = 300) {
-        guard task == nil else { return }
-        running = true
-        error = nil
-        task = Task { [weak self] in
-            var failures = 0
-            while !Task.isCancelled {
-                guard let self = self else { return }
-                let t0 = Date()
-                do {
-                    let img = try await Agent.shared.screenshot(max: 720, quality: 60)
-                    if Task.isCancelled { return }
-                    self.image = img
-                    self.latencyMS = Int(Date().timeIntervalSince(t0) * 1000)
-                    self.error = nil
-                    failures = 0
-                    try? await Task.sleep(nanoseconds: UInt64(intervalMS) * 1_000_000)
-                } catch {
-                    if Task.isCancelled { return }
-                    failures += 1
-                    self.error = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
-                    let backoff = min(5.0, 0.5 * Double(failures))
-                    try? await Task.sleep(nanoseconds: UInt64(backoff * 1_000_000_000))
-                }
-            }
-        }
-    }
-
-    func stop() {
-        task?.cancel()
-        task = nil
-        running = false
-    }
-
-    /// 抓一帧（保存用）
-    func captureFull() async throws -> UIImage {
-        try await Agent.shared.screenshot(max: 0, quality: 92)
-    }
-}
-
-private func fitRect(imageSize: CGSize, in container: CGSize) -> CGRect {
-    guard imageSize.width > 0, imageSize.height > 0 else { return .zero }
-    let scale = min(container.width / imageSize.width, container.height / imageSize.height)
-    let w = imageSize.width * scale
-    let h = imageSize.height * scale
-    return CGRect(x: (container.width - w) / 2, y: (container.height - h) / 2, width: w, height: h)
-}
-
 struct ScreenView: View {
     @EnvironmentObject var app: AppState
-    @StateObject private var streamer = ScreenStreamer()
+    @StateObject private var stream = ScreenStream()
+    @StateObject private var audio = AudioStreamer()
     @State private var showTextInput = false
     @State private var text = ""
+    @State private var showQuality = false
     @State private var toast: String?
-    @State private var pressStart: Date?
-    @State private var lastTapAt: Date = .distantPast
+    @State private var pressStartTime: Date?
     @State private var busy = false
+    @State private var lastTapAt: Date = .distantPast
 
     var body: some View {
         VStack(spacing: 8) {
@@ -77,50 +22,56 @@ struct ScreenView: View {
         .padding(.horizontal, 10)
         .padding(.bottom, 6)
         .background(Theme.bg.ignoresSafeArea())
-        .onAppear { streamer.start() }
-        .onDisappear { streamer.stop() }
+        .onAppear { startStream() }
+        .onDisappear { stream.stop() }
+        .onChange(of: app.quality) { _ in startStream() }
         .sheet(isPresented: $showTextInput) { textSheet }
         .overlay(alignment: .top) { toastView }
     }
 
+    private func startStream() {
+        stream.start(max: app.streamMaxWidth, q: app.streamQualityParam, fps: app.streamFPS)
+    }
+
     private var statusBar: some View {
-        HStack(spacing: 10) {
-            Circle()
-                .fill(app.connected ? Theme.green : Theme.red)
-                .frame(width: 8, height: 8)
-            Text(app.connected ? "已连接" : "未连接")
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundColor(Theme.sub)
-            if streamer.running && streamer.image != nil {
-                Text("\(1000 / max(streamer.latencyMS + 300, 1)) fps · \(streamer.latencyMS)ms")
-                    .font(.system(size: 11, design: .monospaced))
-                    .foregroundColor(Theme.dim)
+        HStack(spacing: 8) {
+            Circle().fill(stream.connected ? Theme.green : Theme.red).frame(width: 8, height: 8)
+            Text(stream.connected ? "实时" : "连接中…")
+                .font(.system(size: 11, weight: .semibold)).foregroundColor(Theme.sub)
+            if stream.connected {
+                Text(String(format: "%.1f fps", stream.fps))
+                    .font(.system(size: 10, design: .monospaced)).foregroundColor(Theme.dim)
             }
             Spacer()
-            if let e = streamer.error {
-                Text(e)
-                    .font(.system(size: 11))
-                    .foregroundColor(Theme.orange)
-                    .lineLimit(1)
+            if let e = stream.error {
+                Text(e).font(.system(size: 10)).foregroundColor(Theme.orange).lineLimit(1)
             }
-            Button {
-                Task { await app.refreshInfo() }
-            } label: {
-                Image(systemName: "arrow.clockwise")
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundColor(Theme.accent)
+            Button { showQuality = true } label: {
+                HStack(spacing: 3) {
+                    Image(systemName: "slider.horizontal.3").font(.system(size: 12))
+                    Text(["流畅", "均衡", "高清"][min(app.quality, 2)]).font(.system(size: 11))
+                }
+                .foregroundColor(Theme.accent)
+            }
+            Button { Task { await app.refreshInfo() } } label: {
+                Image(systemName: "arrow.clockwise").font(.system(size: 14, weight: .semibold)).foregroundColor(Theme.accent)
             }
         }
         .padding(.horizontal, 4)
         .padding(.top, 4)
+        .confirmationDialog("画质", isPresented: $showQuality, titleVisibility: .visible) {
+            Button("流畅 540p（最省流量）") { app.quality = 0 }
+            Button("均衡 720p") { app.quality = 1 }
+            Button("高清 1080p") { app.quality = 2 }
+            Button("取消", role: .cancel) {}
+        }
     }
 
     private var screenArea: some View {
         GeometryReader { geo in
             ZStack {
-                RoundedRectangle(cornerRadius: 14)
-                    .fill(Color.black)
-                if let img = streamer.image {
+                RoundedRectangle(cornerRadius: 14).fill(Color.black)
+                if let img = stream.image {
                     let rect = fitRect(imageSize: img.size, in: geo.size)
                     Image(uiImage: img)
                         .resizable()
@@ -131,39 +82,47 @@ struct ScreenView: View {
                         .gesture(dragGesture(rect: rect))
                 } else {
                     VStack(spacing: 10) {
-                        if streamer.running {
-                            ProgressView().tint(Theme.accent)
+                        if stream.error == nil { ProgressView().tint(Theme.accent) }
+                        Text(stream.error ?? "正在获取画面…")
+                            .font(.system(size: 13)).foregroundColor(.white.opacity(0.7))
+                            .multilineTextAlignment(.center).padding()
+                    }
+                }
+                if audio.playing {
+                    VStack {
+                        HStack {
+                            Spacer()
+                            HStack(spacing: 4) {
+                                Image(systemName: "speaker.wave.2.fill").font(.system(size: 9))
+                                Text("声音已同步").font(.system(size: 9))
+                            }
+                            .padding(.horizontal, 7).padding(.vertical, 3)
+                            .background(Color.black.opacity(0.55))
+                            .foregroundColor(.white)
+                            .clipShape(Capsule())
+                            .padding(8)
                         }
-                        Text(streamer.error ?? "正在获取画面…")
-                            .font(.system(size: 13))
-                            .foregroundColor(Theme.dim)
-                            .multilineTextAlignment(.center)
-                            .padding()
+                        Spacer()
                     }
                 }
             }
         }
-        .overlay(
-            RoundedRectangle(cornerRadius: 14).stroke(Theme.line, lineWidth: 1)
-        )
+        .overlay(RoundedRectangle(cornerRadius: 14).stroke(Theme.line, lineWidth: 1))
     }
 
     private func dragGesture(rect: CGRect) -> some Gesture {
         DragGesture(minimumDistance: 0, coordinateSpace: .local)
             .onChanged { _ in
-                if pressStart == nil { pressStart = Date() }
+                if pressStartTime == nil { pressStartTime = Date() }
             }
             .onEnded { value in
+                let dur = Date().timeIntervalSince(pressStartTime ?? Date())
+                pressStartTime = nil
                 let start = value.startLocation
-                let dur = Date().timeIntervalSince(pressStart ?? Date())
-                pressStart = nil
                 let dx = value.location.x - start.x
                 let dy = value.location.y - start.y
                 let dist = sqrt(dx * dx + dy * dy)
-                guard let screen = app.deviceInfo?.screen else {
-                    flash("尚未获取到屏幕尺寸，请稍后重试")
-                    return
-                }
+                guard let screen = app.deviceInfo?.screen else { return }
                 func toDevice(_ p: CGPoint) -> (Int, Int) {
                     let rx = min(max((p.x - rect.minX) / max(rect.width, 1), 0), 1)
                     let ry = min(max((p.y - rect.minY) / max(rect.height, 1), 0), 1)
@@ -173,9 +132,8 @@ struct ScreenView: View {
                 if dist < 14 {
                     if dur >= 0.55 {
                         send { try await Agent.shared.longPress(x: sx, y: sy, ms: Int(dur * 1000)) }
-                        flash("长按")
                     } else {
-                        if Date().timeIntervalSince(lastTapAt) < 0.35 { return }
+                        if Date().timeIntervalSince(lastTapAt) < 0.3 { return }
                         lastTapAt = Date()
                         send { try await Agent.shared.tap(x: sx, y: sy) }
                     }
@@ -184,15 +142,6 @@ struct ScreenView: View {
                     send { try await Agent.shared.swipe(x1: sx, y1: sy, x2: ex, y2: ey, ms: 220) }
                 }
             }
-    }
-
-    private func send(_ op: @escaping () async throws -> Void) {
-        guard !busy else { return }
-        busy = true
-        Task {
-            defer { busy = false }
-            do { try await op() } catch { flash((error as? LocalizedError)?.errorDescription ?? "操作失败") }
-        }
     }
 
     private var controlBar: some View {
@@ -207,73 +156,67 @@ struct ScreenView: View {
                 keyButton("speaker.wave.2", "音量+") { try await Agent.shared.key("volume_up") }
             }
             HStack(spacing: 8) {
-                Button {
-                    showTextInput = true
-                } label: {
+                Button { showTextInput = true } label: {
                     Label("输入文字", systemImage: "keyboard")
                         .font(.system(size: 13, weight: .semibold))
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 10)
-                        .background(Theme.accent.opacity(0.16))
+                        .frame(maxWidth: .infinity).padding(.vertical, 9)
+                        .background(Theme.accent.opacity(0.10))
                         .foregroundColor(Theme.accent)
                         .clipShape(RoundedRectangle(cornerRadius: 10))
                 }
-                Button {
-                    saveScreenshot()
-                } label: {
-                    Label("截图存相册", systemImage: "square.and.arrow.down")
+                Button { toggleAudio() } label: {
+                    Label(audio.playing ? "关闭声音" : "同步声音",
+                          systemImage: audio.playing ? "speaker.slash.fill" : "speaker.wave.2")
                         .font(.system(size: 13, weight: .semibold))
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 10)
+                        .frame(maxWidth: .infinity).padding(.vertical, 9)
+                        .background(audio.playing ? Theme.blue.opacity(0.12) : Theme.card)
+                        .foregroundColor(audio.playing ? Theme.blue : Theme.text)
+                        .clipShape(RoundedRectangle(cornerRadius: 10))
+                        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.line, lineWidth: 1))
+                }
+                Button { saveScreenshot() } label: {
+                    Image(systemName: "square.and.arrow.down")
+                        .font(.system(size: 15, weight: .semibold))
+                        .frame(width: 46, height: 36)
                         .background(Theme.card)
                         .foregroundColor(Theme.text)
                         .clipShape(RoundedRectangle(cornerRadius: 10))
+                        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.line, lineWidth: 1))
                 }
             }
         }
     }
 
     private func keyButton(_ icon: String, _ label: String, action: @escaping () async throws -> Void) -> some View {
-        Button {
-            send(action)
-        } label: {
+        Button { send(action) } label: {
             VStack(spacing: 3) {
-                Image(systemName: icon).font(.system(size: 16, weight: .medium))
+                Image(systemName: icon).font(.system(size: 15, weight: .medium))
                 Text(label).font(.system(size: 9))
             }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 7)
+            .frame(maxWidth: .infinity).padding(.vertical, 6)
             .background(Theme.card)
             .foregroundColor(Theme.text)
             .clipShape(RoundedRectangle(cornerRadius: 9))
+            .overlay(RoundedRectangle(cornerRadius: 9).stroke(Theme.line, lineWidth: 1))
         }
     }
 
     private var textSheet: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("发送文字到安卓")
-                .font(.system(size: 18, weight: .bold))
-                .foregroundColor(Theme.text)
-            TextField("输入要输入到手机的内容（支持中文）", text: $text, axis: .vertical)
+            Text("发送文字到安卓").font(.system(size: 18, weight: .bold)).foregroundColor(Theme.text)
+            TextField("输入内容（支持中文）", text: $text, axis: .vertical)
                 .textFieldStyle(.plain)
                 .padding(12)
-                .background(Theme.card)
+                .background(Theme.fill)
                 .foregroundColor(Theme.text)
                 .clipShape(RoundedRectangle(cornerRadius: 10))
                 .lineLimit(3...6)
-            HStack {
-                Text("中文输入需在手机上安装 ADBKeyboard；未安装时自动改用剪贴板粘贴")
-                    .font(.system(size: 11))
-                    .foregroundColor(Theme.dim)
-                Spacer()
-            }
+            Text("中文需手机安装 ADBKeyboard 并设为当前输入法；未安装时自动改用剪贴板粘贴")
+                .font(.system(size: 11)).foregroundColor(Theme.dim)
             HStack(spacing: 10) {
                 Button("取消") { showTextInput = false }
-                    .foregroundColor(Theme.sub)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 12)
-                    .background(Theme.card)
-                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                    .foregroundColor(Theme.sub).frame(maxWidth: .infinity).padding(.vertical, 12)
+                    .background(Theme.fill).clipShape(RoundedRectangle(cornerRadius: 10))
                 Button("发送") {
                     let t = text
                     showTextInput = false
@@ -281,29 +224,44 @@ struct ScreenView: View {
                     send { _ = try await Agent.shared.text(t) }
                     text = ""
                 }
-                .foregroundColor(.black)
-                .fontWeight(.bold)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 12)
-                .background(Theme.accent)
-                .clipShape(RoundedRectangle(cornerRadius: 10))
+                .foregroundColor(.white).fontWeight(.bold)
+                .frame(maxWidth: .infinity).padding(.vertical, 12)
+                .background(Theme.accent).clipShape(RoundedRectangle(cornerRadius: 10))
             }
             Spacer()
         }
         .padding(20)
-        .background(Theme.bg.ignoresSafeArea())
+        .background(Theme.card.ignoresSafeArea())
         .presentationDetents([.height(320)])
+    }
+
+    private func toggleAudio() {
+        if audio.playing {
+            audio.stop()
+            Task { _ = try? await Agent.shared.raw("/api/audio/stop", method: "POST") }
+            flash("已停止声音同步")
+        } else {
+            audio.start(mutePhone: true)
+            flash("声音同步中（手机会静音）")
+        }
     }
 
     private func saveScreenshot() {
         Task {
             do {
-                let img = try await streamer.captureFull()
+                let img = try await Agent.shared.screenshot(max: 0, quality: 92)
                 UIImageWriteToSavedPhotosAlbum(img, nil, nil, nil)
                 flash("已保存到相册")
-            } catch {
-                flash("保存失败：\(error.localizedDescription)")
-            }
+            } catch { flash("保存失败：\(app.friendly(error))") }
+        }
+    }
+
+    private func send(_ op: @escaping () async throws -> Void) {
+        guard !busy else { return }
+        busy = true
+        Task {
+            defer { busy = false }
+            do { try await op() } catch { flash(app.friendly(error)) }
         }
     }
 
@@ -318,13 +276,20 @@ struct ScreenView: View {
         if let t = toast {
             Text(t)
                 .font(.system(size: 12, weight: .semibold))
-                .padding(.horizontal, 14)
-                .padding(.vertical, 8)
-                .background(Theme.card.opacity(0.95))
-                .foregroundColor(Theme.text)
+                .padding(.horizontal, 14).padding(.vertical, 8)
+                .background(Color.black.opacity(0.78))
+                .foregroundColor(.white)
                 .clipShape(Capsule())
                 .padding(.top, 8)
                 .transition(.opacity)
         }
     }
+}
+
+func fitRect(imageSize: CGSize, in container: CGSize) -> CGRect {
+    guard imageSize.width > 0, imageSize.height > 0 else { return .zero }
+    let scale = min(container.width / imageSize.width, container.height / imageSize.height)
+    let w = imageSize.width * scale
+    let h = imageSize.height * scale
+    return CGRect(x: (container.width - w) / 2, y: (container.height - h) / 2, width: w, height: h)
 }

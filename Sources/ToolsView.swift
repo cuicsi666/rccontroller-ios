@@ -3,43 +3,65 @@ import UIKit
 
 struct ToolsView: View {
     @EnvironmentObject var app: AppState
+
+    // 设备
+    @State private var info: DeviceInfo?
     @State private var apps: [AppItem] = []
-    @State private var loadingApps = false
     @State private var search = ""
+    @State private var loadingApps = false
+
+    // 系统
+    @State private var volumes: [String: VolumeEntry] = [:]
+    @State private var storage = ""
+    @State private var processes = ""
+    @State private var network = ""
+    @State private var display = ""
+    @State private var props = ""
+    @State private var propsFilter = "ro.product"
+    @State private var settingKey = "screen_brightness"
+    @State private var settingValue = ""
+    @State private var pingResult = ""
+    @State private var pingHost = "223.5.5.5"
+
+    // OTA
+    @State private var ota: OTAStatus?
+    @State private var otaPolling = false
+
     @State private var brightness: Double = 128
     @State private var toast: String?
     @State private var confirmReboot = false
-    @State private var actionBusy = false
+    @State private var busy = false
+    @State private var expanded = Set<String>(["ota", "sound"])
 
     var body: some View {
         ScrollView {
             VStack(spacing: 12) {
                 deviceCard
+                otaCard
+                soundCard
+                storageCard
+                processCard
+                networkCard
+                displayCard
+                appCard
+                systemCard
                 tunnelCard
-                actionsCard
-                appsCard
             }
             .padding(12)
         }
         .background(Theme.bg.ignoresSafeArea())
-        .refreshable { await reload() }
-        .task { await reload() }
+        .refreshable { await reloadAll() }
+        .task { await reloadAll() }
         .alert("确认重启手机？", isPresented: $confirmReboot) {
             Button("取消", role: .cancel) {}
             Button("重启", role: .destructive) { act { try await Agent.shared.power("reboot") } }
-        } message: {
-            Text("重启后模块会自动拉起，隧道约 30-60 秒恢复。")
-        }
+        } message: { Text("重启后模块自动拉起，隧道约 30-60 秒恢复。") }
         .overlay(alignment: .bottom) {
             if let t = toast {
-                Text(t)
-                    .font(.system(size: 12, weight: .semibold))
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 9)
-                    .background(Theme.card)
-                    .foregroundColor(Theme.text)
-                    .clipShape(Capsule())
-                    .padding(.bottom, 16)
+                Text(t).font(.system(size: 12, weight: .semibold))
+                    .padding(.horizontal, 14).padding(.vertical, 9)
+                    .background(Color.black.opacity(0.8)).foregroundColor(.white)
+                    .clipShape(Capsule()).padding(.bottom, 16)
             }
         }
     }
@@ -50,33 +72,28 @@ struct ToolsView: View {
         Card {
             VStack(alignment: .leading, spacing: 10) {
                 HStack {
-                    Text("设备")
-                        .font(.system(size: 15, weight: .bold))
-                        .foregroundColor(Theme.text)
-                    Spacer()
-                    if let v = app.deviceInfo?.version {
+                    SectionTitle(text: "设备", icon: "iphone")
+                    if let v = (info ?? app.deviceInfo)?.version {
                         Text("agent \(v)").font(.system(size: 10, design: .monospaced)).foregroundColor(Theme.dim)
                     }
                 }
-                if let info = app.deviceInfo {
-                    row("型号", info.displayModel)
-                    row("Android", "\(info.android ?? "?") (SDK \(info.sdk ?? "?"))")
-                    row("序列号", info.serial?.isEmpty == false ? info.serial! : "—")
-                    row("屏幕", info.screen.map { "\($0.width) × \($0.height)" } ?? "—")
-                    row("运行时长", fmtDuration(info.uptime_s ?? 0))
+                if let d = info ?? app.deviceInfo {
+                    row("型号", d.displayModel)
+                    row("Android", "\(d.android ?? "?") (SDK \(d.sdk ?? "?"))")
+                    row("序列号", d.serial?.isEmpty == false ? d.serial! : "—")
+                    row("屏幕", d.screen.map { "\($0.width) × \($0.height)" } ?? "—")
+                    row("运行时长", fmtDuration(d.uptime_s ?? 0))
                     HStack(spacing: 14) {
-                        if let b = info.battery, let lv = b.level {
+                        if let b = d.battery, let lv = b.level {
                             HStack(spacing: 5) {
-                                Image(systemName: "battery.75")
-                                    .foregroundColor(lv < 20 ? Theme.red : Theme.green)
+                                Image(systemName: "battery.75").foregroundColor(lv < 20 ? Theme.red : Theme.green)
                                 Text("\(lv)%").font(.system(size: 12, weight: .semibold)).foregroundColor(Theme.text)
                             }
                         }
-                        if let t = info.battery?.temperature_c {
-                            Text("\(String(format: "%.1f", t))°C")
-                                .font(.system(size: 12)).foregroundColor(Theme.sub)
+                        if let t = d.battery?.temperature_c {
+                            Text("\(String(format: "%.1f", t))°C").font(.system(size: 12)).foregroundColor(Theme.sub)
                         }
-                        if info.root == true { TagView(text: "uid 0 · root") }
+                        if d.root == true { TagView(text: "uid 0 · root") }
                     }
                 } else {
                     Text("尚未获取到设备信息").font(.system(size: 12)).foregroundColor(Theme.dim)
@@ -85,105 +102,300 @@ struct ToolsView: View {
         }
     }
 
-    // MARK: 隧道
+    // MARK: OTA
 
-    private var tunnelCard: some View {
+    private var otaCard: some View {
         Card {
             VStack(alignment: .leading, spacing: 10) {
                 HStack {
-                    Text("隧道").font(.system(size: 15, weight: .bold)).foregroundColor(Theme.text)
-                    Spacer()
-                    if let t = app.deviceInfo?.tunnel, t.connected == true {
-                        TagView(text: "在线")
-                    } else {
-                        TagView(text: "离线", color: Theme.red)
+                    SectionTitle(text: "系统升级", icon: "arrow.down.circle")
+                    if let s = ota {
+                        TagView(text: "当前 \(s.current ?? "-")", color: Theme.sub)
                     }
                 }
-                if let t = app.deviceInfo?.tunnel {
-                    row("服务器", t.server ?? "—")
-                    row("远端端口", t.remote ?? "—")
-                    if let e = t.error, !e.isEmpty {
-                        Text(e).font(.system(size: 11)).foregroundColor(Theme.orange)
+                if let s = ota {
+                    if let m = s.message, !m.isEmpty {
+                        Text(m).font(.system(size: 12)).foregroundColor(Theme.sub)
                     }
+                    if (s.progress ?? 0) > 0 || ["downloading", "verifying", "installing", "restarting"].contains(s.state ?? "") {
+                        VStack(alignment: .leading, spacing: 4) {
+                            ProgressView(value: Double(s.progress ?? 0), total: 100)
+                                .tint(Theme.accent)
+                            Text("\(s.progress ?? 0)%").font(.system(size: 10, design: .monospaced)).foregroundColor(Theme.dim)
+                        }
+                    }
+                    if let n = s.notes, !n.isEmpty, s.has_update == true {
+                        Text(n).font(.system(size: 11)).foregroundColor(Theme.dim)
+                    }
+                } else {
+                    Text("点击「检查更新」查看是否有新版本").font(.system(size: 12)).foregroundColor(Theme.dim)
                 }
-                row("网关", app.baseURL)
-                Button {
-                    actionBusy = true
-                    Task {
-                        defer { actionBusy = false }
-                        do {
-                            _ = try await Agent.shared.reconnectTunnel()
-                            try? await Task.sleep(nanoseconds: 1_500_000_000)
-                            await app.refreshInfo()
-                            flash("已请求重连，状态已刷新")
-                        } catch { flash(app.friendly(error)) }
+                HStack(spacing: 8) {
+                    Button {
+                        checkOTA()
+                    } label: {
+                        Label("检查更新", systemImage: "magnifyingglass")
+                            .font(.system(size: 12, weight: .semibold))
+                            .frame(maxWidth: .infinity).padding(.vertical, 9)
+                            .background(Theme.fill).foregroundColor(Theme.text)
+                            .clipShape(RoundedRectangle(cornerRadius: 9))
                     }
-                } label: {
-                    Label("重连隧道", systemImage: "arrow.triangle.2.circlepath")
-                        .font(.system(size: 13, weight: .semibold))
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 10)
-                        .background(Theme.blue.opacity(0.15))
-                        .foregroundColor(Theme.blue)
-                        .clipShape(RoundedRectangle(cornerRadius: 10))
+                    Button {
+                        applyOTA()
+                    } label: {
+                        Label("立即更新", systemImage: "arrow.up.circle")
+                            .font(.system(size: 12, weight: .semibold))
+                            .frame(maxWidth: .infinity).padding(.vertical, 9)
+                            .background(Theme.accent.opacity(0.12)).foregroundColor(Theme.accent)
+                            .clipShape(RoundedRectangle(cornerRadius: 9))
+                    }
+                    .disabled(!(ota?.has_update ?? false))
                 }
             }
         }
     }
 
-    // MARK: 快捷操作
+    // MARK: 声音
 
-    private var actionsCard: some View {
+    private var soundCard: some View {
         Card {
-            VStack(alignment: .leading, spacing: 12) {
-                Text("快捷操作").font(.system(size: 15, weight: .bold)).foregroundColor(Theme.text)
+            VStack(alignment: .leading, spacing: 10) {
+                SectionTitle(text: "声音与音量", icon: "speaker.wave.2")
+                ForEach(streamItems) { item in
+                    if let v = volumes[item.id] {
+                        HStack(spacing: 8) {
+                            Text(item.label).font(.system(size: 11)).foregroundColor(Theme.sub).frame(width: 30, alignment: .leading)
+                            Slider(value: Binding(
+                                get: { Double(v.index) },
+                                set: { nv in setVol(stream: Int(item.id) ?? 3, index: Int(nv)) }
+                            ), in: 0...Double(max(v.max, 1)), step: 1)
+                            .tint(Theme.accent)
+                            Text("\(v.index)").font(.system(size: 10, design: .monospaced)).foregroundColor(Theme.dim).frame(width: 28)
+                        }
+                    }
+                }
+                Text("提示：开启「同步声音」时会自动把手机扬声器静音（码器级），iPhone 上听声音。")
+                    .font(.system(size: 10)).foregroundColor(Theme.dim)
+            }
+        }
+    }
+
+    // MARK: 存储
+
+    private var storageCard: some View {
+        Card {
+            VStack(alignment: .leading, spacing: 8) {
+                SectionTitle(text: "存储", icon: "internaldrive")
+                Text(storage.isEmpty ? "加载中…" : storage)
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundColor(Theme.sub)
+                    .textSelection(.enabled)
+            }
+        }
+    }
+
+    // MARK: 进程
+
+    private var processCard: some View {
+        Card {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack {
+                    SectionTitle(text: "进程（CPU Top）", icon: "cpu")
+                    Button("刷新") { Task { processes = (try? await Agent.shared.processes()) ?? processes } }
+                        .font(.system(size: 11)).foregroundColor(Theme.accent)
+                }
+                Text(processes.isEmpty ? "加载中…" : processes)
+                    .font(.system(size: 10, design: .monospaced))
+                    .foregroundColor(Theme.sub)
+                    .lineLimit(14)
+                    .textSelection(.enabled)
+            }
+        }
+    }
+
+    // MARK: 网络
+
+    private var networkCard: some View {
+        Card {
+            VStack(alignment: .leading, spacing: 8) {
+                SectionTitle(text: "网络", icon: "wifi")
+                Text(network.isEmpty ? "加载中…" : network)
+                    .font(.system(size: 10, design: .monospaced))
+                    .foregroundColor(Theme.sub).lineLimit(8).textSelection(.enabled)
+                HStack(spacing: 8) {
+                    TextField("目标地址", text: $pingHost)
+                        .font(.system(size: 11, design: .monospaced)).textFieldStyle(.plain)
+                        .padding(.horizontal, 8).padding(.vertical, 7)
+                        .background(Theme.fill).clipShape(RoundedRectangle(cornerRadius: 8))
+                    Button("测延迟") {
+                        act {
+                            pingResult = try await Agent.shared.pingHost(pingHost)
+                        }
+                    }
+                    .font(.system(size: 12, weight: .semibold)).foregroundColor(Theme.accent)
+                }
+                if !pingResult.isEmpty {
+                    Text(pingResult).font(.system(size: 10, design: .monospaced))
+                        .foregroundColor(Theme.sub).lineLimit(8)
+                }
+            }
+        }
+    }
+
+    // MARK: 显示
+
+    private var displayCard: some View {
+        Card {
+            VStack(alignment: .leading, spacing: 8) {
+                SectionTitle(text: "显示（分辨率 / DPI）", icon: "rectangle.on.rectangle")
+                Text(display.isEmpty ? "加载中…" : display)
+                    .font(.system(size: 11, design: .monospaced)).foregroundColor(Theme.sub)
+                HStack(spacing: 8) {
+                    Button("恢复默认") {
+                        act { display = try await Agent.shared.setDisplay(width: 0, height: 0, density: 0, reset: true) }
+                    }
+                    .font(.system(size: 11)).foregroundColor(Theme.red)
+                    Button("1080×2400 / 480dpi") {
+                        act { display = try await Agent.shared.setDisplay(width: 1080, height: 2400, density: 480, reset: false) }
+                    }
+                    .font(.system(size: 11)).foregroundColor(Theme.accent)
+                }
+            }
+        }
+    }
+
+    // MARK: 应用
+
+    private var appCard: some View {
+        Card {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack {
+                    SectionTitle(text: "应用管理", icon: "square.grid.3x3")
+                    if loadingApps { ProgressView().scaleEffect(0.6) }
+                    Text("\(filteredApps.count)").font(.system(size: 10)).foregroundColor(Theme.dim)
+                }
+                TextField("搜索包名…", text: $search)
+                    .font(.system(size: 12)).textFieldStyle(.plain)
+                    .autocapitalization(.none).disableAutocorrection(true)
+                    .padding(.horizontal, 10).padding(.vertical, 8)
+                    .background(Theme.fill).clipShape(RoundedRectangle(cornerRadius: 8))
+                if apps.isEmpty {
+                    Button("加载应用列表") { loadApps() }.font(.system(size: 12, weight: .semibold))
+                }
+                ForEach(filteredApps.prefix(40)) { a in
+                    HStack {
+                        Text(a.package)
+                            .font(.system(size: 11, design: .monospaced))
+                            .foregroundColor(Theme.text).lineLimit(1)
+                        Spacer()
+                        Button("启动") { act { try await Agent.shared.launch(a.package) } }
+                            .font(.system(size: 11, weight: .semibold)).foregroundColor(Theme.accent)
+                        Menu {
+                            Button("强制停止") { appAction(a.package, "force-stop") }
+                            Button("冻结（停用）") { appAction(a.package, "disable") }
+                            Button("解冻（启用）") { appAction(a.package, "enable") }
+                            Button("清除数据", role: .destructive) { appAction(a.package, "clear") }
+                            Button("卸载", role: .destructive) { appAction(a.package, "uninstall") }
+                        } label: {
+                            Image(systemName: "ellipsis.circle").font(.system(size: 14)).foregroundColor(Theme.dim)
+                        }
+                    }
+                    .padding(.vertical, 3)
+                    Divider().background(Theme.line)
+                }
+            }
+        }
+    }
+
+    // MARK: 系统设置
+
+    private var systemCard: some View {
+        Card {
+            VStack(alignment: .leading, spacing: 10) {
+                SectionTitle(text: "系统属性 / 设置", icon: "gearshape.2")
+                HStack(spacing: 8) {
+                    TextField("属性过滤，如 ro.product", text: $propsFilter)
+                        .font(.system(size: 11, design: .monospaced)).textFieldStyle(.plain)
+                        .padding(.horizontal, 8).padding(.vertical, 7)
+                        .background(Theme.fill).clipShape(RoundedRectangle(cornerRadius: 8))
+                    Button("查询") {
+                        act { props = try await Agent.shared.props(filter: propsFilter) }
+                    }
+                    .font(.system(size: 12, weight: .semibold)).foregroundColor(Theme.accent)
+                }
+                if !props.isEmpty {
+                    Text(props).font(.system(size: 9, design: .monospaced))
+                        .foregroundColor(Theme.sub).lineLimit(10).textSelection(.enabled)
+                }
+                Divider()
+                HStack(spacing: 8) {
+                    TextField("settings key", text: $settingKey)
+                        .font(.system(size: 11, design: .monospaced)).textFieldStyle(.plain)
+                        .padding(.horizontal, 8).padding(.vertical, 7)
+                        .background(Theme.fill).clipShape(RoundedRectangle(cornerRadius: 8))
+                    TextField("值", text: $settingValue)
+                        .font(.system(size: 11, design: .monospaced)).textFieldStyle(.plain)
+                        .padding(.horizontal, 8).padding(.vertical, 7)
+                        .background(Theme.fill).clipShape(RoundedRectangle(cornerRadius: 8))
+                    Button("写入") {
+                        act {
+                            _ = try await Agent.shared.putSetting(key: settingKey, value: settingValue)
+                            toast = "已写入 \(settingKey)=\(settingValue)"
+                        }
+                    }
+                    .font(.system(size: 12, weight: .semibold)).foregroundColor(Theme.accent)
+                }
+            }
+        }
+    }
+
+    // MARK: 隧道 / 快捷
+
+    private var tunnelCard: some View {
+        Card {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack {
+                    SectionTitle(text: "隧道与快捷操作", icon: "point.3.connected.trianglepath.dotted")
+                    if let t = (info ?? app.deviceInfo)?.tunnel, t.connected == true {
+                        TagView(text: "在线")
+                    } else {
+                        TagView(text: "离线", color: Theme.red)
+                    }
+                }
+                if let t = (info ?? app.deviceInfo)?.tunnel {
+                    row("服务器", t.server ?? "—")
+                    row("远端端口", t.remote ?? "—")
+                }
                 HStack(spacing: 8) {
                     quick("唤醒", "sun.max") { try await Agent.shared.power("wake") }
                     quick("锁屏", "lock") { try await Agent.shared.power("screen_off") }
                     quick("主页", "house") { try await Agent.shared.key("home") }
-                    quick("截图", "camera") { try await Agent.shared.key("camera") }
-                }
-                VStack(alignment: .leading, spacing: 6) {
-                    HStack {
-                        Text("屏幕亮度").font(.system(size: 12)).foregroundColor(Theme.sub)
-                        Spacer()
-                        Text("\(Int(brightness))").font(.system(size: 12, design: .monospaced)).foregroundColor(Theme.dim)
+                    quick("日志", "doc.text") {
+                        let l = try await Agent.shared.logcat(lines: 80)
+                        UIPasteboard.general.string = l
+                        toast = "日志已复制"
                     }
-                    Slider(value: $brightness, in: 1...255, step: 1, onEditingChanged: { editing in
-                        if !editing {
-                            act { try await Agent.shared.power("brightness", value: Int(brightness)) }
-                        }
-                    })
-                    .accentColor(Theme.accent)
                 }
                 HStack(spacing: 8) {
-                    Button {
-                        confirmReboot = true
-                    } label: {
+                    Button { confirmReboot = true } label: {
                         Label("重启手机", systemImage: "restart")
                             .font(.system(size: 12, weight: .semibold))
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 9)
-                            .background(Theme.red.opacity(0.14))
-                            .foregroundColor(Theme.red)
+                            .frame(maxWidth: .infinity).padding(.vertical, 9)
+                            .background(Theme.red.opacity(0.10)).foregroundColor(Theme.red)
                             .clipShape(RoundedRectangle(cornerRadius: 9))
                     }
                     Button {
-                        withAnimation { toast = nil }
-                        Task {
-                            do {
-                                let log = try await Agent.shared.logcat(lines: 60)
-                                toast = "已取日志 \(log.count) 字符"
-                                UIPasteboard.general.string = log
-                            } catch { flash(app.friendly(error)) }
+                        act {
+                            _ = try await Agent.shared.reconnectTunnel()
+                            try? await Task.sleep(nanoseconds: 1_500_000_000)
+                            await app.refreshInfo()
+                            toast = "已请求重连"
                         }
                     } label: {
-                        Label("复制日志", systemImage: "doc.on.doc")
+                        Label("重连隧道", systemImage: "arrow.triangle.2.circlepath")
                             .font(.system(size: 12, weight: .semibold))
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 9)
-                            .background(Theme.card)
-                            .foregroundColor(Theme.sub)
+                            .frame(maxWidth: .infinity).padding(.vertical, 9)
+                            .background(Theme.blue.opacity(0.10)).foregroundColor(Theme.blue)
                             .clipShape(RoundedRectangle(cornerRadius: 9))
                     }
                 }
@@ -192,80 +404,42 @@ struct ToolsView: View {
     }
 
     private func quick(_ title: String, _ icon: String, action: @escaping () async throws -> Void) -> some View {
-        Button {
-            act(action)
-        } label: {
+        Button { act(action) } label: {
             VStack(spacing: 5) {
-                Image(systemName: icon).font(.system(size: 16))
+                Image(systemName: icon).font(.system(size: 15))
                 Text(title).font(.system(size: 10))
             }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 10)
-            .background(Theme.card)
-            .foregroundColor(Theme.text)
+            .frame(maxWidth: .infinity).padding(.vertical, 9)
+            .background(Theme.card).foregroundColor(Theme.text)
             .clipShape(RoundedRectangle(cornerRadius: 9))
+            .overlay(RoundedRectangle(cornerRadius: 9).stroke(Theme.line, lineWidth: 1))
         }
     }
 
-    // MARK: 应用
-
-    private var appsCard: some View {
-        Card {
-            VStack(alignment: .leading, spacing: 10) {
-                HStack {
-                    Text("已安装应用").font(.system(size: 15, weight: .bold)).foregroundColor(Theme.text)
-                    Spacer()
-                    if loadingApps { ProgressView().scaleEffect(0.7) }
-                    Text("\(filteredApps.count)").font(.system(size: 11)).foregroundColor(Theme.dim)
-                }
-                TextField("搜索包名…", text: $search)
-                    .font(.system(size: 12))
-                    .textFieldStyle(.plain)
-                    .autocapitalization(.none)
-                    .disableAutocorrection(true)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 8)
-                    .background(Theme.bg)
-                    .foregroundColor(Theme.text)
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
-                if apps.isEmpty {
-                    Text("下拉刷新或点👇重新加载").font(.system(size: 12)).foregroundColor(Theme.dim)
-                    Button("加载应用列表") { loadApps() }
-                        .font(.system(size: 12, weight: .semibold))
-                }
-                ForEach(filteredApps.prefix(80)) { a in
-                    HStack {
-                        Image(systemName: "app.dashed")
-                            .foregroundColor(Theme.dim)
-                            .font(.system(size: 13))
-                        Text(a.package)
-                            .font(.system(size: 12, design: .monospaced))
-                            .foregroundColor(Theme.text)
-                            .lineLimit(1)
-                        Spacer()
-                        Button("启动") {
-                            act { try await Agent.shared.launch(a.package) }
-                        }
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundColor(Theme.accent)
-                    }
-                    .padding(.vertical, 4)
-                    Divider().background(Theme.line)
-                }
-            }
-        }
-    }
+    private let streamItems = [
+        PresetItem(id: "3", label: "媒体", value: ""),
+        PresetItem(id: "2", label: "铃声", value: ""),
+        PresetItem(id: "4", label: "闹钟", value: ""),
+        PresetItem(id: "5", label: "通知", value: "")
+    ]
 
     private var filteredApps: [AppItem] {
         let s = search.trimmingCharacters(in: .whitespaces).lowercased()
         return s.isEmpty ? apps : apps.filter { $0.package.lowercased().contains(s) }
     }
 
-    // MARK: 工具
+    // MARK: 数据
 
-    private func reload() async {
+    private func reloadAll() async {
         await app.refreshInfo()
+        info = app.deviceInfo
         loadApps()
+        volumes = (try? await Agent.shared.volumes()) ?? [:]
+        storage = (try? await Agent.shared.storage()) ?? ""
+        processes = (try? await Agent.shared.processes()) ?? ""
+        network = (try? await Agent.shared.network()) ?? ""
+        display = (try? await Agent.shared.display()) ?? ""
+        ota = try? await Agent.shared.otaStatus()
     }
 
     private func loadApps() {
@@ -273,16 +447,76 @@ struct ToolsView: View {
         loadingApps = true
         Task {
             defer { loadingApps = false }
-            do { apps = try await Agent.shared.apps() } catch { flash(app.friendly(error)) }
+            apps = (try? await Agent.shared.apps()) ?? apps
         }
     }
 
-    private func act(_ action: @escaping () async throws -> Void) {
-        guard !actionBusy else { return }
-        actionBusy = true
+    private func appAction(_ pkg: String, _ action: String) {
+        act {
+            let r = try await Agent.shared.appCtl(pkg, action)
+            toast = "\(action) → \(r.output?.trimmingCharacters(in: .whitespacesAndNewlines).prefix(40) ?? "")"
+            if action == "uninstall" { apps.removeAll { $0.package == pkg } }
+        }
+    }
+
+    private func setVol(stream: Int, index: Int) {
+        guard let cur = volumes[String(stream)], cur.index != index else { return }
+        volumes[String(stream)] = VolumeEntry(index: index, max: cur.max)
+        Task { try? await Agent.shared.setVolume(stream: stream, index: index) }
+    }
+
+    // MARK: OTA 操作
+
+    private func checkOTA() {
         Task {
-            defer { actionBusy = false }
-            do { try await action() } catch { flash(app.friendly(error)) }
+            do {
+                let s = try await Agent.shared.otaCheck()
+                ota = s
+                toast = s.has_update == true ? "发现新版本 \(s.latest ?? "")" : "已是最新版本"
+            } catch { toast = app.friendly(error) }
+        }
+    }
+
+    private func applyOTA() {
+        Task {
+            do {
+                _ = try await Agent.shared.otaApply()
+                startOTAPolling()
+            } catch { toast = app.friendly(error) }
+        }
+    }
+
+    private func startOTAPolling() {
+        guard !otaPolling else { return }
+        otaPolling = true
+        Task {
+            for _ in 0..<240 {
+                if let s = try? await Agent.shared.otaStatus() {
+                    await MainActor.run { ota = s }
+                    let st = s.state ?? ""
+                    if st == "restarting" || st == "error" {
+                        if st == "restarting" {
+                            toast = "升级完成，等待服务重启…"
+                            try? await Task.sleep(nanoseconds: 6_000_000_000)
+                            await app.connect()
+                        }
+                        break
+                    }
+                }
+                try? await Task.sleep(nanoseconds: 600_000_000)
+            }
+            await MainActor.run { otaPolling = false }
+        }
+    }
+
+    // MARK: 工具
+
+    private func act(_ action: @escaping () async throws -> Void) {
+        guard !busy else { return }
+        busy = true
+        Task {
+            defer { busy = false }
+            do { try await action() } catch { toast = app.friendly(error) }
         }
     }
 
@@ -301,12 +535,5 @@ struct ToolsView: View {
         if d > 0 { return "\(d)天 \(h)小时" }
         if h > 0 { return "\(h)小时 \(m)分" }
         return "\(m)分钟"
-    }
-
-    private func flash(_ msg: String) {
-        toast = msg
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-            if toast == msg { withAnimation { toast = nil } }
-        }
     }
 }

@@ -1,17 +1,19 @@
 import SwiftUI
 
+/// 浅色主题
 enum Theme {
-    static let bg = Color(hex: 0x0B0F14)
-    static let card = Color(hex: 0x161C24)
-    static let line = Color(hex: 0x232B36)
-    static let text = Color(hex: 0xE8EEF6)
-    static let sub = Color(hex: 0x9AA7B8)
-    static let dim = Color(hex: 0x6B7787)
-    static let accent = Color(hex: 0x2BE0A8)
-    static let blue = Color(hex: 0x4DA3FF)
-    static let orange = Color(hex: 0xFFA94D)
-    static let red = Color(hex: 0xFF5D5D)
-    static let green = Color(hex: 0x2BE0A8)
+    static let bg = Color(hex: 0xF4F6F9)
+    static let card = Color.white
+    static let line = Color(hex: 0xE3E7EE)
+    static let text = Color(hex: 0x111827)
+    static let sub = Color(hex: 0x5B6577)
+    static let dim = Color(hex: 0x98A2B3)
+    static let accent = Color(hex: 0x0E9F6E)
+    static let blue = Color(hex: 0x2563EB)
+    static let orange = Color(hex: 0xE8830C)
+    static let red = Color(hex: 0xE11D48)
+    static let green = Color(hex: 0x0E9F6E)
+    static let fill = Color(hex: 0xF0F3F7)
 }
 
 extension Color {
@@ -36,6 +38,7 @@ struct Card<Content: View>: View {
             .background(Theme.card)
             .clipShape(RoundedRectangle(cornerRadius: 14))
             .overlay(RoundedRectangle(cornerRadius: 14).stroke(Theme.line, lineWidth: 1))
+            .shadow(color: Color.black.opacity(0.03), radius: 6, x: 0, y: 2)
     }
 }
 
@@ -44,11 +47,32 @@ struct TagView: View {
     var color: Color = Theme.accent
     var body: some View {
         Text(text)
-            .font(.system(size: 11, weight: .semibold))
-            .padding(.horizontal, 8)
-            .padding(.vertical, 3)
-            .background(color.opacity(0.15))
+            .font(.system(size: 10, weight: .semibold))
+            .padding(.horizontal, 7)
+            .padding(.vertical, 2)
+            .background(color.opacity(0.12))
             .foregroundColor(color)
             .clipShape(Capsule())
     }
+}
+
+struct SectionTitle: View {
+    var text: String
+    var icon: String? = nil
+    var body: some View {
+        HStack(spacing: 6) {
+            if let i = icon {
+                Image(systemName: i).font(.system(size: 12, weight: .semibold)).foregroundColor(Theme.accent)
+            }
+            Text(text).font(.system(size: 14, weight: .bold)).foregroundColor(Theme.text)
+            Spacer()
+        }
+    }
+}
+
+
+struct PresetItem: Identifiable {
+    var id: String
+    var label: String
+    var value: String
 }
