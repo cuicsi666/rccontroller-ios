@@ -165,6 +165,15 @@ struct SettingsView: View {
                         Text(r).font(.system(size: 12)).foregroundColor(ok ? Theme.green : Theme.red)
                     }
                 }
+                if let crash = UserDefaults.standard.string(forKey: "rc.lastCrash"), !crash.isEmpty {
+                    Section(header: Text("上次崩溃记录")) {
+                        Text(crash)
+                            .font(.system(size: 10, design: .monospaced))
+                            .foregroundColor(Theme.red)
+                            .textSelection(.enabled)
+                        Button("清除记录") { UserDefaults.standard.removeObject(forKey: "rc.lastCrash") }
+                    }
+                }
                 Section(footer: Text("链路：iPhone → 上海云网关(18888) → SSH 反向隧道 → 安卓本机 8787。安卓端只监听 127.0.0.1，不暴露公网。")) {
                     Button("重新连接隧道") {
                         Task {
