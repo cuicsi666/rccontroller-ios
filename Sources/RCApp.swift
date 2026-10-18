@@ -65,6 +65,7 @@ struct RootView: View {
                     .tag(2)
             }
             .accentColor(Theme.accent)
+            .environmentObject(sms)
         }
         .background(Theme.bg.ignoresSafeArea())
         .preferredColorScheme(.light)
