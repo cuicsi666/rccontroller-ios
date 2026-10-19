@@ -23,7 +23,11 @@ struct ScreenView: View {
         .padding(.horizontal, 10)
         .padding(.bottom, 6)
         .background(Theme.bg.ignoresSafeArea())
-        
+        .onAppear {
+            Diag.mark("screen-appear")
+            startStream()
+            startFallbackPolling()
+        }
         .onDisappear { stream.stop() }
         .onChange(of: app.quality) { _ in startStream() }
         .onReceive(NotificationCenter.default.publisher(for: .rcForeground)) { _ in
