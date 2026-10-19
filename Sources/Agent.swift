@@ -86,6 +86,19 @@ struct SMSResponse: Codable {
 
 struct VolumeEntry: Codable { var index: Int; var max: Int }
 
+struct RemoteFile: Codable, Identifiable {
+    var name: String
+    var dir: Bool
+    var size: Int64?
+    var mtime: Int64?
+    var id: String { name }
+}
+
+struct FileListResult: Codable {
+    var path: String
+    var items: [RemoteFile]
+}
+
 struct CPUStat: Codable {
     var usage: Double?
     var cores: Int?
@@ -326,6 +339,44 @@ final class Agent {
         guard let http = resp as? HTTPURLResponse, http.statusCode == 200 else { throw AgentError.http(500) }
         let env = try JSONDecoder().decode(Envelope<ExecResult>.self, from: data)
         return env.data ?? ExecResult(output: env.error, exit: -1)
+    }
+
+    // MARK: 文件
+
+    func files(path: String) async throws -> FileListResult {
+        try await send("/api/files?path=\(path.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? "")", as: FileListResult.self)
+    }
+
+    func fileData(path: String) async throws -> Data {
+        var req = try makeRequest("/api/file?path=\(path.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? "")", timeout: 300)
+        req.httpMethod = "GET"
+        let (data, resp) = try await session.data(for: req)
+        guard let http = resp as? HTTPURLResponse, http.statusCode == 200 else {
+            throw AgentError.http((resp as? HTTPURLResponse)?.statusCode ?? 500)
+        }
+        return data
+    }
+
+    @discardableResult
+    func upload(to path: String, data: Data) async throws -> Int {
+        var req = try makeRequest("/api/file?path=\(path.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? "")", method: "POST", timeout: 600)
+        req.httpBody = data
+        req.setValue("application/octet-stream", forHTTPHeaderField: "Content-Type")
+        let (respData, resp) = try await session.data(for: req)
+        guard let http = resp as? HTTPURLResponse, http.statusCode == 200 else {
+            throw AgentError.http((resp as? HTTPURLResponse)?.statusCode ?? 500)
+        }
+        if let obj = try? JSONSerialization.jsonObject(with: respData) as? [String: Any],
+           let d = obj["data"] as? [String: Any], let n = d["bytes"] as? Int {
+            return n
+        }
+        return data.count
+    }
+
+    func fileOp(_ op: String, path: String, to: String? = nil) async throws {
+        var body: [String: Any] = ["op": op, "path": path]
+        if let to = to { body["to"] = to }
+        _ = try await raw("/api/file/op", method: "POST", json: body)
     }
 
     // MARK: 电源 / 音量 / 存储 / 进程 / 网络

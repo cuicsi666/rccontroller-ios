@@ -50,9 +50,12 @@ struct RootView: View {
                     .tabItem { Label("屏幕", systemImage: "iphone.gen3") }
                     .tag(0)
                     
-                ToolsView(active: tab == 1)
-                    .tabItem { Label("工具", systemImage: "square.grid.2x2") }
+                FilesView()
+                    .tabItem { Label("文件", systemImage: "folder") }
                     .tag(1)
+                ToolsView(active: tab == 2)
+                    .tabItem { Label("工具", systemImage: "square.grid.2x2") }
+                    .tag(2)
                     
                 SMSView()
                     .tabItem { Label("短信", systemImage: "message") }
@@ -69,9 +72,11 @@ struct RootView: View {
         .onChange(of: scenePhase) { phase in
             if phase == .background {
                 backgroundedAt = Date()
+                BackgroundKeeper.shared.start()
             } else if phase == .active {
                 let away = Date().timeIntervalSince(backgroundedAt ?? Date())
                 backgroundedAt = nil
+                BackgroundKeeper.shared.stop()
                 if away > 10 {
                     Diag.mark("foreground-\(Int(away))s")
                     Task {

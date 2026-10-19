@@ -41,12 +41,6 @@ struct ToolsView: View {
                 deviceCard
                 terminalCard
                 otaCard
-                soundCard
-                storageCard
-                processCard
-                networkCard
-                displayCard
-                appCard
                 systemCard
                 tunnelCard
             }
