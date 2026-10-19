@@ -242,6 +242,22 @@ final class Agent {
         return req
     }
 
+
+    /// 用 URLQueryItem 构造请求，避免 path 被二次编码（%2F 变 %252F）
+    func makeRequest(_ path: String, query: [URLQueryItem], method: String = "GET", timeout: TimeInterval? = nil) throws -> URLRequest {
+        guard let base = baseURL else { throw AgentError.badURL }
+        guard var comp = URLComponents(url: base.appendingPathComponent(path), resolvingAgainstBaseURL: false) else {
+            throw AgentError.badURL
+        }
+        comp.queryItems = query
+        guard let url = comp.url else { throw AgentError.badURL }
+        var req = URLRequest(url: url)
+        req.httpMethod = method
+        req.setValue(token, forHTTPHeaderField: "X-RC-Token")
+        if let t = timeout { req.timeoutInterval = t }
+        return req
+    }
+
     private func send<T: Codable>(_ path: String, method: String = "GET", json: [String: Any]? = nil, as type: T.Type) async throws -> T {
         var body: Data?
         if let json = json { body = try JSONSerialization.data(withJSONObject: json) }
@@ -344,11 +360,19 @@ final class Agent {
     // MARK: 文件
 
     func files(path: String) async throws -> FileListResult {
-        try await send("/api/files?path=\(path.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? "")", as: FileListResult.self)
+        let req = try makeRequest("/api/files", query: [URLQueryItem(name: "path", value: path)])
+        let (data, resp) = try await session.data(for: req)
+        guard let http = resp as? HTTPURLResponse, http.statusCode == 200 else {
+            throw AgentError.http((resp as? HTTPURLResponse)?.statusCode ?? 500)
+        }
+        let env = try JSONDecoder().decode(Envelope<FileListResult>.self, from: data)
+        if let e = env.error { throw AgentError.server(e) }
+        guard let d = env.data else { throw AgentError.server("返回为空") }
+        return d
     }
 
     func fileData(path: String) async throws -> Data {
-        var req = try makeRequest("/api/file?path=\(path.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? "")", timeout: 300)
+        var req = try makeRequest("/api/file", query: [URLQueryItem(name: "path", value: path)], timeout: 300)
         req.httpMethod = "GET"
         let (data, resp) = try await session.data(for: req)
         guard let http = resp as? HTTPURLResponse, http.statusCode == 200 else {
@@ -359,7 +383,7 @@ final class Agent {
 
     @discardableResult
     func upload(to path: String, data: Data) async throws -> Int {
-        var req = try makeRequest("/api/file?path=\(path.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? "")", method: "POST", timeout: 600)
+        var req = try makeRequest("/api/file", query: [URLQueryItem(name: "path", value: path)], method: "POST", timeout: 600)
         req.httpBody = data
         req.setValue("application/octet-stream", forHTTPHeaderField: "Content-Type")
         let (respData, resp) = try await session.data(for: req)
