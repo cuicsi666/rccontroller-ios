@@ -24,7 +24,13 @@ struct FilesView: View {
     @State private var showShare = false
     @State private var deleteTarget: RemoteFile?
 
-    private let quickPaths = [("/sdcard", "内部存储"), ("/sdcard/Download", "下载"), ("/sdcard/DCIM", "相册"), ("/sdcard/Music", "音乐"), ("/sdcard/Movies", "视频")]
+    private let quickPaths = [
+        PresetItem(id: "/sdcard", label: "内部存储", value: "/sdcard"),
+        PresetItem(id: "/sdcard/Download", label: "下载", value: "/sdcard/Download"),
+        PresetItem(id: "/sdcard/DCIM", label: "相册", value: "/sdcard/DCIM"),
+        PresetItem(id: "/sdcard/Music", label: "音乐", value: "/sdcard/Music"),
+        PresetItem(id: "/sdcard/Movies", label: "视频", value: "/sdcard/Movies")
+    ]
 
     var body: some View {
         VStack(spacing: 0) {
@@ -366,19 +372,19 @@ struct FilesView: View {
 // MARK: - 快捷路径
 
 struct QuickPathBar: View {
-    var paths: [(String, String)]
+    var paths: [PresetItem]
     var current: String
     var onSelect: (String) -> Void
 
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
-                ForEach(paths, id: \.0) { p in
-                    Button(p.1) { onSelect(p.0) }
+                ForEach(paths) { p in
+                    Button(p.label) { onSelect(p.value) }
                         .font(.system(size: 11))
                         .padding(.horizontal, 11).padding(.vertical, 6)
-                        .background(current == p.0 ? Theme.accent.opacity(0.12) : Theme.card)
-                        .foregroundColor(current == p.0 ? Theme.accent : Theme.sub)
+                        .background(current == p.value ? Theme.accent.opacity(0.12) : Theme.card)
+                        .foregroundColor(current == p.value ? Theme.accent : Theme.sub)
                         .clipShape(Capsule())
                         .overlay(Capsule().stroke(Theme.line, lineWidth: 1))
                 }
