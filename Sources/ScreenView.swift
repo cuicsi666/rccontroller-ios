@@ -67,8 +67,9 @@ struct ScreenView: View {
             Text(stream.connected ? "实时" : "连接中…")
                 .font(.system(size: 11, weight: .semibold)).foregroundColor(Theme.sub)
             if stream.connected {
-                Text(String(format: "%.1f fps", stream.fps))
-                    .font(.system(size: 10, design: .monospaced)).foregroundColor(Theme.dim)
+                Text(String(format: "%.1f fps · %d KB/s", stream.fps, stream.kbps))
+                    .font(.system(size: 10, design: .monospaced))
+                    .foregroundColor(stream.kbps > 250 ? Theme.orange : Theme.dim)
             }
             Spacer()
             if let e = stream.error {
@@ -88,9 +89,9 @@ struct ScreenView: View {
         .padding(.horizontal, 4)
         .padding(.top, 4)
         .confirmationDialog("画质", isPresented: $showQuality, titleVisibility: .visible) {
-            Button("流畅 540p（最省流量）") { app.quality = 0 }
-            Button("均衡 720p") { app.quality = 1 }
-            Button("高清 1080p") { app.quality = 2 }
+            Button("流畅 480p（约 0.6Mbps，推荐）") { app.quality = 0 }
+            Button("均衡 720p（约 2Mbps）") { app.quality = 1 }
+            Button("高清 1080p（约 4Mbps，5M 出口会卡）") { app.quality = 2 }
             Button("取消", role: .cancel) {}
         }
     }

@@ -7,12 +7,14 @@ final class ScreenStream: NSObject, ObservableObject, URLSessionDataDelegate {
     @Published var image: UIImage?
     @Published var connected = false
     @Published var fps: Double = 0
+    @Published var kbps: Int = 0
     @Published var error: String?
 
     private var session: URLSession?
     private var task: URLSessionDataTask?
     private var buffer = Data()
     private var frames = 0
+    private var bytesWindow = 0
     private var firstFrameMarked = false
     private var retries = 0
     private var config = (max: 720, q: 58, fps: 10)
@@ -70,6 +72,7 @@ final class ScreenStream: NSObject, ObservableObject, URLSessionDataDelegate {
     }
 
     func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
+        bytesWindow += data.count
         lock.lock()
         buffer.append(data)
         var images: [UIImage] = []
@@ -98,7 +101,9 @@ final class ScreenStream: NSObject, ObservableObject, URLSessionDataDelegate {
             let dt = now.timeIntervalSince(self.lastTick)
             if dt >= 1 {
                 self.fps = Double(self.frames) / dt
+                self.kbps = Int(Double(self.bytesWindow) / dt / 1024)
                 self.frames = 0
+                self.bytesWindow = 0
                 self.lastTick = now
             }
         }

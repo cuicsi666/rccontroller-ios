@@ -27,14 +27,15 @@ final class AppState: ObservableObject {
 
     var configured: Bool { !token.isEmpty && URL(string: baseURL) != nil }
 
+    // 上海云出口只有 5Mbps，默认走最省流的档位
     var streamMaxWidth: Int {
-        switch quality { case 0: return 540; case 2: return 1080; default: return 720 }
+        switch quality { case 0: return 480; case 2: return 1080; default: return 720 }
     }
     var streamQualityParam: Int {
-        switch quality { case 0: return 52; case 2: return 70; default: return 58 }
+        switch quality { case 0: return 45; case 2: return 65; default: return 55 }
     }
     var streamFPS: Int {
-        switch quality { case 0: return 12; case 2: return 10; default: return 10 }
+        switch quality { case 0: return 6; case 2: return 8; default: return 8 }
     }
 
     func apply() { Agent.shared.configure(base: baseURL, token: token) }
