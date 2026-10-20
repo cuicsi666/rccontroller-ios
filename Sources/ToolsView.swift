@@ -33,6 +33,7 @@ struct ToolsView: View {
     @State private var confirmReboot = false
     @State private var busy = false
     @State private var showTerminal = false
+    @State private var showFiles = false
     @State private var loadedOnce = false
 
     var body: some View {
@@ -40,6 +41,7 @@ struct ToolsView: View {
             VStack(spacing: 12) {
                 deviceCard
                 terminalCard
+                fileCard
                 otaCard
                 systemCard
                 tunnelCard
@@ -52,6 +54,19 @@ struct ToolsView: View {
             guard active, !loadedOnce else { return }
             loadedOnce = true
             await reloadAll()
+        }
+        .sheet(isPresented: $showFiles) {
+            NavigationView {
+                FilesView()
+                    .navigationTitle("文件管理")
+                    .navigationBarTitleDisplayMode(.inline)
+                    .toolbar {
+                        ToolbarItem(placement: .confirmationAction) {
+                            Button("关闭") { showFiles = false }
+                        }
+                    }
+            }
+            .preferredColorScheme(.light)
         }
         .sheet(isPresented: $showTerminal) {
             NavigationView {
@@ -148,6 +163,44 @@ struct ToolsView: View {
                         .padding(.vertical, 8)
                         .background(Theme.accent.opacity(0.12))
                         .foregroundColor(Theme.accent)
+                        .clipShape(Capsule())
+                }
+            }
+        }
+    }
+
+    // MARK: 文件入口
+
+    private var fileCard: some View {
+        Card {
+            HStack(spacing: 12) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 10)
+                        .fill(Theme.orange.opacity(0.10))
+                        .frame(width: 38, height: 38)
+                    Image(systemName: "folder.fill")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundColor(Theme.orange)
+                }
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("文件管理")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundColor(Theme.text)
+                    Text("浏览 / 编辑文档 / 播放音视频 / 上传下载")
+                        .font(.system(size: 10))
+                        .foregroundColor(Theme.dim)
+                        .lineLimit(1)
+                }
+                Spacer()
+                Button {
+                    showFiles = true
+                } label: {
+                    Text("打开")
+                        .font(.system(size: 12, weight: .semibold))
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 8)
+                        .background(Theme.orange.opacity(0.12))
+                        .foregroundColor(Theme.orange)
                         .clipShape(Capsule())
                 }
             }
@@ -515,6 +568,44 @@ struct ToolsView: View {
         guard let cur = volumes[String(stream)], cur.index != index else { return }
         volumes[String(stream)] = VolumeEntry(index: index, max: cur.max)
         Task { try? await Agent.shared.setVolume(stream: stream, index: index) }
+    }
+
+    // MARK: 文件入口
+
+    private var fileCard: some View {
+        Card {
+            HStack(spacing: 12) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 10)
+                        .fill(Theme.orange.opacity(0.10))
+                        .frame(width: 38, height: 38)
+                    Image(systemName: "folder.fill")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundColor(Theme.orange)
+                }
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("文件管理")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundColor(Theme.text)
+                    Text("浏览 / 编辑文档 / 播放音视频 / 上传下载")
+                        .font(.system(size: 10))
+                        .foregroundColor(Theme.dim)
+                        .lineLimit(1)
+                }
+                Spacer()
+                Button {
+                    showFiles = true
+                } label: {
+                    Text("打开")
+                        .font(.system(size: 12, weight: .semibold))
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 8)
+                        .background(Theme.orange.opacity(0.12))
+                        .foregroundColor(Theme.orange)
+                        .clipShape(Capsule())
+                }
+            }
+        }
     }
 
     // MARK: OTA 操作

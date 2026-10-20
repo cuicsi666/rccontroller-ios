@@ -86,6 +86,30 @@ struct SMSResponse: Codable {
 
 struct VolumeEntry: Codable { var index: Int; var max: Int }
 
+struct NotifItem: Codable, Identifiable {
+    var pkg: String
+    var nid: String
+    var key: String?
+    var title: String
+    var text: String
+    var sub: String?
+    var time: Int64?
+    var ongoing: Bool?
+    var category: String?
+
+    var id: String { pkg + "#" + nid }
+
+    enum CodingKeys: String, CodingKey {
+        case pkg, key, title, text, sub, time, ongoing, category
+        case nid = "id"
+    }
+}
+
+struct NotifResponse: Codable {
+    var notifications: [NotifItem]
+    var count: Int
+}
+
 struct RemoteFile: Codable, Identifiable {
     var name: String
     var dir: Bool
@@ -479,6 +503,11 @@ final class Agent {
     }
 
     // MARK: 短信
+
+    func notifications() async throws -> [NotifItem] {
+        let r = try await send("/api/notifications", as: NotifResponse.self)
+        return r.notifications
+    }
 
     func sms(limit: Int = 100, sinceID: Int64 = 0) async throws -> [SMSMessage] {
         let r = try await send("/api/sms?limit=\(limit)&since_id=\(sinceID)", as: SMSResponse.self)
