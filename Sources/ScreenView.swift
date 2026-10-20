@@ -177,21 +177,19 @@ struct ScreenView: View {
 
     private var screenArea: some View {
         GeometryReader { geo in
+            let rect = displayRect(in: geo.size)
             ZStack {
                 RoundedRectangle(cornerRadius: fullscreen ? 0 : 14).fill(Color.black)
+
                 if h264.ready {
                     H264View(layer: h264.layer)
                         .clipShape(RoundedRectangle(cornerRadius: fullscreen ? 0 : 14))
                 } else if let img = stream.image {
-                    let rect = fitRect(imageSize: img.size, in: geo.size)
                     Image(uiImage: img)
                         .resizable()
                         .interpolation(.medium)
                         .frame(width: rect.width, height: rect.height)
                         .position(x: rect.midX, y: rect.midY)
-                        .contentShape(Rectangle())
-                        .gesture(dragGesture(rect: rect))
-                        .simultaneousGesture(pinchGesture(rect: rect))
                 } else {
                     VStack(spacing: 10) {
                         if stream.error == nil { ProgressView().tint(Theme.accent) }
@@ -200,6 +198,14 @@ struct ScreenView: View {
                             .multilineTextAlignment(.center).padding()
                     }
                 }
+
+                // 手势层：不管 H.264 还是 JPEG 都覆盖在画面区域上
+                Color.clear
+                    .contentShape(Rectangle())
+                    .frame(width: rect.width, height: rect.height)
+                    .position(x: rect.midX, y: rect.midY)
+                    .gesture(dragGesture(rect: rect))
+                    .simultaneousGesture(pinchGesture(rect: rect))
 
                 if fullscreen {
                     VStack {
@@ -220,6 +226,7 @@ struct ScreenView: View {
                         Spacer()
                     }
                 }
+
                 if audio.playing && !fullscreen {
                     VStack {
                         HStack {
@@ -243,6 +250,20 @@ struct ScreenView: View {
             RoundedRectangle(cornerRadius: fullscreen ? 0 : 14)
                 .stroke(fullscreen ? Color.clear : Theme.line, lineWidth: 1)
         )
+    }
+
+    /// 画面在屏幕上的实际显示区域（用于坐标映射）
+    private func displayRect(in size: CGSize) -> CGRect {
+        if h264.ready, let s = app.deviceInfo?.screen {
+            return fitRect(imageSize: CGSize(width: s.width, height: s.height), in: size)
+        }
+        if let img = stream.image {
+            return fitRect(imageSize: img.size, in: size)
+        }
+        if let s = app.deviceInfo?.screen {
+            return fitRect(imageSize: CGSize(width: s.width, height: s.height), in: size)
+        }
+        return CGRect(origin: .zero, size: size)
     }
 
     private func dragGesture(rect: CGRect) -> some Gesture {
