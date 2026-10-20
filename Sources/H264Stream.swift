@@ -219,17 +219,28 @@ final class H264Stream: NSObject, ObservableObject, URLSessionDataDelegate {
 }
 
 /// 把 AVSampleBufferDisplayLayer 包成 SwiftUI 视图
+final class LayerHostView: UIView {
+    var hosted: CALayer?
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        hosted?.frame = bounds
+        CATransaction.commit()
+    }
+}
+
 struct H264View: UIViewRepresentable {
     let layer: AVSampleBufferDisplayLayer
-    func makeUIView(context: Context) -> UIView {
-        let v = UIView()
+    func makeUIView(context: Context) -> LayerHostView {
+        let v = LayerHostView()
         v.backgroundColor = .black
+        v.hosted = layer
         layer.frame = v.bounds
-        layer.autoresizingMask = [.layerWidthSizable, .layerHeightSizable]
         v.layer.addSublayer(layer)
         return v
     }
-    func updateUIView(_ uiView: UIView, context: Context) {
+    func updateUIView(_ uiView: LayerHostView, context: Context) {
         layer.frame = uiView.bounds
     }
 }
