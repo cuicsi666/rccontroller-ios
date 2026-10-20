@@ -570,44 +570,6 @@ struct ToolsView: View {
         Task { try? await Agent.shared.setVolume(stream: stream, index: index) }
     }
 
-    // MARK: 文件入口
-
-    private var fileCard: some View {
-        Card {
-            HStack(spacing: 12) {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 10)
-                        .fill(Theme.orange.opacity(0.10))
-                        .frame(width: 38, height: 38)
-                    Image(systemName: "folder.fill")
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundColor(Theme.orange)
-                }
-                VStack(alignment: .leading, spacing: 3) {
-                    Text("文件管理")
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundColor(Theme.text)
-                    Text("浏览 / 编辑文档 / 播放音视频 / 上传下载")
-                        .font(.system(size: 10))
-                        .foregroundColor(Theme.dim)
-                        .lineLimit(1)
-                }
-                Spacer()
-                Button {
-                    showFiles = true
-                } label: {
-                    Text("打开")
-                        .font(.system(size: 12, weight: .semibold))
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 8)
-                        .background(Theme.orange.opacity(0.12))
-                        .foregroundColor(Theme.orange)
-                        .clipShape(Capsule())
-                }
-            }
-        }
-    }
-
     // MARK: OTA 操作
 
     private func checkOTA() {
