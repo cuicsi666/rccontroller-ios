@@ -34,6 +34,10 @@ struct ToolsView: View {
     @State private var busy = false
     @State private var showTerminal = false
     @State private var showFiles = false
+    @State private var showMacros = false
+    @State private var showSchedule = false
+    @State private var recording = false
+    @State private var recordFile = ""
     @State private var loadedOnce = false
 
     var body: some View {
@@ -42,6 +46,7 @@ struct ToolsView: View {
                 deviceCard
                 terminalCard
                 fileCard
+                automationCard
                 otaCard
                 systemCard
                 tunnelCard
@@ -55,6 +60,8 @@ struct ToolsView: View {
             loadedOnce = true
             await reloadAll()
         }
+        .sheet(isPresented: $showMacros) { MacrosView() }
+        .sheet(isPresented: $showSchedule) { ScheduleView() }
         .sheet(isPresented: $showFiles) {
             NavigationView {
                 FilesView()
@@ -568,6 +575,52 @@ struct ToolsView: View {
         guard let cur = volumes[String(stream)], cur.index != index else { return }
         volumes[String(stream)] = VolumeEntry(index: index, max: cur.max)
         Task { try? await Agent.shared.setVolume(stream: stream, index: index) }
+    }
+
+    // MARK: 自动化
+
+    private var automationCard: some View {
+        Card {
+            VStack(alignment: .leading, spacing: 10) {
+                SectionTitle(text: "自动化", icon: "bolt.fill")
+                HStack(spacing: 8) {
+                    autoBtn("宏 / 脚本", "record.circle") { showMacros = true }
+                    autoBtn("定时任务", "clock.badge.checkmark") { showSchedule = true }
+                    autoBtn(recording ? "停止录屏" : "屏幕录制", recording ? "stop.circle" : "record.circle.fill") {
+                        toggleRecording()
+                    }
+                }
+                if recording || !recordFile.isEmpty {
+                    Text(recordFile).font(.system(size: 9, design: .monospaced))
+                        .foregroundColor(Theme.dim).lineLimit(1)
+                }
+            }
+        }
+    }
+
+    private func autoBtn(_ title: String, _ icon: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            VStack(spacing: 5) {
+                Image(systemName: icon).font(.system(size: 15))
+                Text(title).font(.system(size: 10))
+            }
+            .frame(maxWidth: .infinity).padding(.vertical, 9)
+            .background(Theme.fill).foregroundColor(Theme.text)
+            .clipShape(RoundedRectangle(cornerRadius: 9))
+        }
+    }
+
+    private func toggleRecording() {
+        Task {
+            do {
+                let obj = try await Agent.shared.raw("/api/screenrecord", method: "POST",
+                                                     json: ["action": recording ? "stop" : "start"])
+                let d = obj["data"] as? [String: Any] ?? [:]
+                if let f = d["file"] as? String { recordFile = f }
+                recording = (d["state"] as? String) == "recording"
+                toast = recording ? "开始录屏（手机上会显示录制中）" : "录屏已保存：\(recordFile)"
+            } catch { toast = app.friendly(error) }
+        }
     }
 
     // MARK: OTA 操作

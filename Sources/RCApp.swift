@@ -25,6 +25,38 @@ struct RCApp: App {
             }
             .environmentObject(state)
             .preferredColorScheme(.light)
+            .onOpenURL { url in
+                handleURL(url)
+            }
+        }
+    }
+}
+
+extension RCApp {
+    /// 给「快捷指令」用：rccontrol://wake / screenshot / open?pkg=xxx / exec?cmd=xxx / lock
+    func handleURL(_ url: URL) {
+        guard url.scheme == "rccontrol" else { return }
+        Task {
+            do {
+                switch url.host {
+                case "wake": try await Agent.shared.key("wake")
+                case "lock": try await Agent.shared.power("screen_off")
+                case "screenshot":
+                    let img = try await Agent.shared.screenshot(max: 0, quality: 92)
+                    UIImageWriteToSavedPhotosAlbum(img, nil, nil, nil)
+                case "open":
+                    if let pkg = URLComponents(url: url, resolvingAgainstBaseURL: false)?
+                        .queryItems?.first(where: { $0.name == "pkg" })?.value {
+                        try await Agent.shared.launch(pkg)
+                    }
+                case "exec":
+                    if let cmd = URLComponents(url: url, resolvingAgainstBaseURL: false)?
+                        .queryItems?.first(where: { $0.name == "cmd" })?.value {
+                        _ = try await Agent.shared.exec(cmd)
+                    }
+                default: break
+                }
+            } catch { Diag.err("url: \(error.localizedDescription)") }
         }
     }
 }

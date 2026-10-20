@@ -358,6 +358,11 @@ final class Agent {
     func longPress(x: Int, y: Int, ms: Int = 800) async throws {
         _ = try await send("/api/input/longpress", method: "POST", json: ["x": x, "y": y, "ms": ms], as: ExecResult.self)
     }
+    func pinch(cx: Int, cy: Int, from: Int, to: Int, ms: Int = 320) async throws {
+        _ = try await raw("/api/input/pinch", method: "POST",
+                          json: ["CX": cx, "CY": cy, "Dist1": from, "Dist2": to, "MS": ms])
+    }
+
     func key(_ name: String) async throws { _ = try await send("/api/input/key", method: "POST", json: ["name": name], as: ExecResult.self) }
     func text(_ s: String) async throws -> ExecResult { try await send("/api/input/text", method: "POST", json: ["text": s], as: ExecResult.self) }
 
