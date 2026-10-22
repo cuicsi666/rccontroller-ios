@@ -263,11 +263,11 @@ struct RootView: View {
         chargeBusy = true
         Task {
             do {
-                let c = try await Agent.shared.charge()
-                let stop = !(c.suspended ?? false)
-                _ = try await Agent.shared.setCharge(action: stop ? "hold" : "resume")
-                await MainActor.run { chargeToast = stop ? "已停止充电 ⏸" : "已恢复充电 ⚡" }
-                try? await Task.sleep(nanoseconds: 1_800_000_000)
+                // 单次 exec 完成「读状态 + 反转」，避免多次请求把画面流挤掉
+                let r = try await Agent.shared.exec("sh /data/adb/rc-agent/charge.sh toggle", timeoutMS: 20000)
+                let msg = (r.output ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+                await MainActor.run { chargeToast = msg.isEmpty ? "已切换充电状态" : msg }
+                try? await Task.sleep(nanoseconds: 2_000_000_000)
                 await refreshStats()
                 await MainActor.run {
                     chargeToast = nil

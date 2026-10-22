@@ -103,8 +103,19 @@ struct ScreenView: View {
     /// 自适应：连续掉帧就把画质降一档
     private func startAdaptiveMonitor() {
         Task {
+            var offlineTicks = 0
             while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: 3_000_000_000)
+                // 断流看门狗：连续 9 秒没画面就主动重启，避免一直卡在「连接中」
+                if !useH264 && !stream.connected {
+                    offlineTicks += 1
+                    if offlineTicks >= 3 {
+                        offlineTicks = 0
+                        await MainActor.run { startStream() }
+                    }
+                    continue
+                }
+                offlineTicks = 0
                 guard stream.connected, !useH264 else { continue }
                 let target = Double(app.streamFPS)
                 if stream.fps > 0 && stream.fps < target * 0.45 && app.quality > 0 {
@@ -229,7 +240,6 @@ struct ScreenView: View {
                 if !fullscreen {
                     HStack(spacing: 0) {
                         VStack(spacing: 7) {
-                            sideButton("chevron.left", "返回") { try await Agent.shared.key("back") }
                             sideButton("power", "电源") { try await Agent.shared.key("power") }
                             sideButton("sun.max", "唤醒") { try await Agent.shared.key("wake") }
                             sideButton("speaker.wave.2", "音量+") { try await Agent.shared.key("volume_up") }
@@ -240,6 +250,7 @@ struct ScreenView: View {
                         }
                         Spacer(minLength: 0)
                         VStack(spacing: 7) {
+                            sideButton("chevron.left", "返回") { try await Agent.shared.key("back") }
                             sideButton("house", "主页") { try await Agent.shared.key("home") }
                             sideButton("square.on.square", "多任务") { try await Agent.shared.key("recents") }
                         }
