@@ -776,12 +776,12 @@ struct ToolsView: View {
             VStack(alignment: .leading, spacing: 10) {
                 SectionTitle(text: "自动化", icon: "bolt.fill")
                 HStack(spacing: 8) {
-                    autoBtn("宏 / 脚本", "record.circle") { showMacros = true }
-                    autoBtn("定时任务", "clock.badge.checkmark") { showSchedule = true }
                     autoBtn(recording ? "停止录屏" : "屏幕录制", recording ? "stop.circle" : "record.circle.fill") {
                         toggleRecording()
                     }
                 }
+                Text("宏与定时任务已移到主页面顶部，点任务名即可运行并查看执行过程")
+                    .font(.system(size: 10)).foregroundColor(Theme.dim)
                 if recording || !recordFile.isEmpty {
                     Text(recordFile).font(.system(size: 9, design: .monospaced))
                         .foregroundColor(Theme.dim).lineLimit(1)

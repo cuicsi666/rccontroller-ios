@@ -77,6 +77,8 @@ struct RootView: View {
             if let err = app.lastError, !app.connected {
                 errorBar(err)
             }
+            AutoBar()
+
             TabView(selection: $tab) {
                 ScreenView()
                     .tabItem { Label("屏幕", systemImage: "iphone.gen3") }
