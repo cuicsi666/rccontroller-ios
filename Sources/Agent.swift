@@ -554,15 +554,30 @@ final class Agent {
 
     // MARK: 充电控制
 
-    func charge() async throws -> ChargeStatus { try await send("/api/charge", as: ChargeStatus.self) }
+    /// 充电控制在手机端由 root 脚本 charge.sh 完成（agent 3.x/4.x 都兼容，不依赖新接口）
+    func charge() async throws -> ChargeStatus {
+        let r = try await exec("sh /data/adb/rc-agent/charge.sh status", timeoutMS: 15000)
+        let out = (r.output ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let line = out.split(separator: "\n").last.map(String.init) ?? out
+        guard let data = line.data(using: .utf8), !line.isEmpty else {
+            throw AgentError.server("充电状态读取失败")
+        }
+        do { return try JSONDecoder().decode(ChargeStatus.self, from: data) }
+        catch { throw AgentError.decode("充电状态") }
+    }
 
     func setCharge(enabled: Bool? = nil, stopAt: Int? = nil, startAt: Int? = nil, action: String? = nil) async throws -> ChargeStatus {
-        var body: [String: Any] = [:]
-        if let e = enabled { body["enabled"] = e }
-        if let s = stopAt { body["stop_at"] = s }
-        if let a = startAt { body["start_at"] = a }
-        if let act = action { body["action"] = act }
-        return try await send("/api/charge", method: "POST", json: body, as: ChargeStatus.self)
+        var parts = ["sh", "/data/adb/rc-agent/charge.sh"]
+        if let act = action {
+            parts.append(act)
+        } else {
+            parts.append("set")
+            if let e = enabled { parts += ["enabled", e ? "1" : "0"] }
+            if let s = stopAt { parts += ["stop_at", "\(s)"] }
+            if let a = startAt { parts += ["start_at", "\(a)"] }
+        }
+        _ = try await exec(parts.joined(separator: " "), timeoutMS: 20000)
+        return try await charge()
     }
 
     func otaStatus() async throws -> OTAStatus { try await send("/api/ota/status", as: OTAStatus.self) }
