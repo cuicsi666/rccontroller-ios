@@ -69,6 +69,8 @@ struct RootView: View {
     @State private var tab = 0
     @State private var showSettings = false
     @State private var stats: LiveStats?
+    @State private var chargeBusy = false
+    @State private var chargeToast: String?
     @State private var latency = 0
 
     var body: some View {
@@ -101,6 +103,17 @@ struct RootView: View {
         }
         .background(Theme.bg.ignoresSafeArea())
         .preferredColorScheme(.light)
+        .overlay(alignment: .top) {
+            if let t = chargeToast {
+                Text(t)
+                    .font(.system(size: 12, weight: .semibold))
+                    .padding(.horizontal, 14).padding(.vertical, 8)
+                    .background(Color.black.opacity(0.82))
+                    .foregroundColor(.white)
+                    .clipShape(Capsule())
+                    .padding(.top, 96)
+            }
+        }
         .sheet(isPresented: $showSettings) { SettingsView() }
         .onChange(of: scenePhase) { phase in
             if phase == .background {
@@ -175,7 +188,11 @@ struct RootView: View {
             }
 
             HStack(spacing: 0) {
-                metric("battery.75", batteryText, "电量", batteryColor)
+                Button { toggleCharge() } label: {
+                    metric(batteryIcon, batteryText, batteryLabel, batteryColor)
+                }
+                .buttonStyle(.plain)
+                .disabled(chargeBusy)
                 divider
                 metric("cpu", cpuText, "CPU", Theme.text)
                 divider
@@ -221,6 +238,50 @@ struct RootView: View {
                 .foregroundColor(Theme.dim)
         }
         .frame(maxWidth: .infinity)
+    }
+
+    private var charging: Bool {
+        let st = stats?.battery?.status ?? 0
+        return st == 2 || st == 5
+    }
+
+    private var batteryLabel: String {
+        let st = stats?.battery?.status ?? 0
+        if st == 5 { return "已充满" }
+        return st == 2 ? "充电中" : "电量"
+    }
+
+    private var batteryIcon: String {
+        let l = stats?.battery?.level ?? 0
+        let base = l > 85 ? "battery.100" : (l > 60 ? "battery.75" : (l > 35 ? "battery.50" : (l > 10 ? "battery.25" : "battery.0")))
+        return charging ? base + ".bolt" : base
+    }
+
+    /// 点电量：有电就停充，停着就恢复（走手机端 charge.sh）
+    private func toggleCharge() {
+        guard !chargeBusy else { return }
+        chargeBusy = true
+        Task {
+            do {
+                let c = try await Agent.shared.charge()
+                let stop = !(c.suspended ?? false)
+                _ = try await Agent.shared.setCharge(action: stop ? "hold" : "resume")
+                await MainActor.run { chargeToast = stop ? "已停止充电 ⏸" : "已恢复充电 ⚡" }
+                try? await Task.sleep(nanoseconds: 1_800_000_000)
+                await refreshStats()
+                await MainActor.run {
+                    chargeToast = nil
+                    chargeBusy = false
+                }
+            } catch {
+                await MainActor.run {
+                    chargeToast = "操作失败：\(error.localizedDescription)"
+                    chargeBusy = false
+                }
+                try? await Task.sleep(nanoseconds: 2_500_000_000)
+                await MainActor.run { chargeToast = nil }
+            }
+        }
     }
 
     private var batteryText: String {

@@ -25,7 +25,6 @@ struct ScreenView: View {
         VStack(spacing: 8) {
             if !fullscreen { statusBar }
             screenArea
-            if !fullscreen { controlBar }
         }
         .padding(.horizontal, fullscreen ? 0 : 10)
         .padding(.bottom, fullscreen ? 0 : 6)
@@ -227,6 +226,28 @@ struct ScreenView: View {
                     }
                 }
 
+                if !fullscreen {
+                    HStack(spacing: 0) {
+                        VStack(spacing: 7) {
+                            sideButton("chevron.left", "返回") { try await Agent.shared.key("back") }
+                            sideButton("power", "电源") { try await Agent.shared.key("power") }
+                            sideButton("sun.max", "唤醒") { try await Agent.shared.key("wake") }
+                            sideButton("speaker.wave.2", "音量+") { try await Agent.shared.key("volume_up") }
+                            sideButton("speaker.slash", "音量-") { try await Agent.shared.key("volume_down") }
+                            sideButton(audio.playing ? "speaker.slash.fill" : "speaker.wave.2.fill",
+                                       audio.playing ? "关声音" : "同步声音") { toggleAudio() }
+                            sideButton("square.and.arrow.down", "截图") { saveScreenshot() }
+                        }
+                        Spacer(minLength: 0)
+                        VStack(spacing: 7) {
+                            sideButton("house", "主页") { try await Agent.shared.key("home") }
+                            sideButton("square.on.square", "多任务") { try await Agent.shared.key("recents") }
+                        }
+                    }
+                    .padding(.horizontal, 5)
+                    .padding(.vertical, 10)
+                }
+
                 if audio.playing && !fullscreen {
                     VStack {
                         HStack {
@@ -320,61 +341,21 @@ struct ScreenView: View {
             }
     }
 
-    // MARK: 控制条
+    // MARK: 侧边控制按钮
 
-    private var controlBar: some View {
-        VStack(spacing: 8) {
-            HStack(spacing: 6) {
-                keyButton("chevron.left", "返回") { try await Agent.shared.key("back") }
-                keyButton("house", "主页") { try await Agent.shared.key("home") }
-                keyButton("square.on.square", "多任务") { try await Agent.shared.key("recents") }
-                keyButton("power", "电源") { try await Agent.shared.key("power") }
-                keyButton("sun.max", "唤醒") { try await Agent.shared.key("wake") }
-                keyButton("speaker.slash", "音量-") { try await Agent.shared.key("volume_down") }
-                keyButton("speaker.wave.2", "音量+") { try await Agent.shared.key("volume_up") }
-            }
-            HStack(spacing: 8) {
-                Button { showTextInput = true } label: {
-                    Label("输入文字", systemImage: "keyboard")
-                        .font(.system(size: 13, weight: .semibold))
-                        .frame(maxWidth: .infinity).padding(.vertical, 9)
-                        .background(Theme.accent.opacity(0.10))
-                        .foregroundColor(Theme.accent)
-                        .clipShape(RoundedRectangle(cornerRadius: 10))
-                }
-                Button { toggleAudio() } label: {
-                    Label(audio.playing ? "关闭声音" : "同步声音",
-                          systemImage: audio.playing ? "speaker.slash.fill" : "speaker.wave.2")
-                        .font(.system(size: 13, weight: .semibold))
-                        .frame(maxWidth: .infinity).padding(.vertical, 9)
-                        .background(audio.playing ? Theme.blue.opacity(0.12) : Theme.card)
-                        .foregroundColor(audio.playing ? Theme.blue : Theme.text)
-                        .clipShape(RoundedRectangle(cornerRadius: 10))
-                        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.line, lineWidth: 1))
-                }
-                Button { saveScreenshot() } label: {
-                    Image(systemName: "square.and.arrow.down")
-                        .font(.system(size: 15, weight: .semibold))
-                        .frame(width: 46, height: 36)
-                        .background(Theme.card).foregroundColor(Theme.text)
-                        .clipShape(RoundedRectangle(cornerRadius: 10))
-                        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.line, lineWidth: 1))
-                }
-            }
-        }
-    }
-
-    private func keyButton(_ icon: String, _ label: String, action: @escaping () async throws -> Void) -> some View {
+    private func sideButton(_ icon: String, _ label: String, action: @escaping () async throws -> Void) -> some View {
         Button { send(action) } label: {
-            VStack(spacing: 3) {
-                Image(systemName: icon).font(.system(size: 15, weight: .medium))
-                Text(label).font(.system(size: 9))
+            VStack(spacing: 2) {
+                Image(systemName: icon).font(.system(size: 15, weight: .semibold))
+                Text(label).font(.system(size: 8, weight: .medium))
             }
-            .frame(maxWidth: .infinity).padding(.vertical, 6)
-            .background(Theme.card).foregroundColor(Theme.text)
-            .clipShape(RoundedRectangle(cornerRadius: 9))
-            .overlay(RoundedRectangle(cornerRadius: 9).stroke(Theme.line, lineWidth: 1))
+            .frame(width: 46, height: 42)
+            .background(Color.black.opacity(0.55))
+            .foregroundColor(.white)
+            .clipShape(RoundedRectangle(cornerRadius: 11))
+            .overlay(RoundedRectangle(cornerRadius: 11).stroke(Color.white.opacity(0.12), lineWidth: 1))
         }
+        .buttonStyle(.plain)
     }
 
     private var textSheet: some View {
