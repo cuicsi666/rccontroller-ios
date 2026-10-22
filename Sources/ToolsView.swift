@@ -27,6 +27,7 @@ struct ToolsView: View {
     // 充电控制
     @State private var charge: ChargeStatus?
     @State private var chargeBusy = false
+    @State private var showSniff = false
 
     // OTA
     @State private var ota: OTAStatus?
@@ -49,6 +50,7 @@ struct ToolsView: View {
             VStack(spacing: 12) {
                 deviceCard
                 chargeCard
+                sniffCard
                 terminalCard
                 fileCard
                 automationCard
@@ -72,6 +74,7 @@ struct ToolsView: View {
                 try? await Task.sleep(nanoseconds: 5_000_000_000)
             }
         }
+        .sheet(isPresented: $showSniff) { SniffView().environmentObject(app) }
         .sheet(isPresented: $showMacros) { MacrosView() }
         .sheet(isPresented: $showSchedule) { ScheduleView() }
         .sheet(isPresented: $showFiles) {
@@ -145,6 +148,41 @@ struct ToolsView: View {
                     }
                 } else {
                     Text("尚未获取到设备信息").font(.system(size: 12)).foregroundColor(Theme.dim)
+                }
+            }
+        }
+    }
+
+    // MARK: 系统级抓包入口
+
+    private var sniffCard: some View {
+        Card {
+            HStack(spacing: 12) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 10)
+                        .fill(Theme.red.opacity(0.10))
+                        .frame(width: 38, height: 38)
+                    Image(systemName: "waveform.path.ecg")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundColor(Theme.red)
+                }
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("系统级抓包")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundColor(Theme.text)
+                    Text("root tcpdump · 全部 App · 导出 pcap 给 Wireshark")
+                        .font(.system(size: 10))
+                        .foregroundColor(Theme.dim)
+                        .lineLimit(1)
+                }
+                Spacer()
+                Button { showSniff = true } label: {
+                    Text("打开")
+                        .font(.system(size: 12, weight: .semibold))
+                        .padding(.horizontal, 14).padding(.vertical, 8)
+                        .background(Theme.red.opacity(0.12))
+                        .foregroundColor(Theme.red)
+                        .clipShape(Capsule())
                 }
             }
         }
