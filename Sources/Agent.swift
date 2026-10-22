@@ -140,6 +140,27 @@ struct LiveStats: Codable {
     var cpu: CPUStat?
     var mem: MemStat?
     var temp_c: Double?
+    var temp_batt_c: Double?
+    var ts: Int64?
+}
+
+struct ChargeStatus: Codable {
+    var enabled: Bool?
+    var stop_at: Int?
+    var start_at: Int?
+    var level: Int?
+    var suspended: Bool?
+    var state: String?
+    var status: String?
+    var supported: Bool?
+    var node: String?
+    var voltage_v: Double?
+    var current_a: Double?
+    var power_w: Double?
+    var health: Int?
+    var temp_batt: Double?
+    var temp_soc: Double?
+    var message: String?
     var ts: Int64?
 }
 struct VolumeMap: Codable { }
@@ -530,6 +551,19 @@ final class Agent {
     }
 
     func stats() async throws -> LiveStats { try await send("/api/stats", as: LiveStats.self) }
+
+    // MARK: 充电控制
+
+    func charge() async throws -> ChargeStatus { try await send("/api/charge", as: ChargeStatus.self) }
+
+    func setCharge(enabled: Bool? = nil, stopAt: Int? = nil, startAt: Int? = nil, action: String? = nil) async throws -> ChargeStatus {
+        var body: [String: Any] = [:]
+        if let e = enabled { body["enabled"] = e }
+        if let s = stopAt { body["stop_at"] = s }
+        if let a = startAt { body["start_at"] = a }
+        if let act = action { body["action"] = act }
+        return try await send("/api/charge", method: "POST", json: body, as: ChargeStatus.self)
+    }
 
     func otaStatus() async throws -> OTAStatus { try await send("/api/ota/status", as: OTAStatus.self) }
     func otaCheck() async throws -> OTAStatus { try await send("/api/ota/check", as: OTAStatus.self) }

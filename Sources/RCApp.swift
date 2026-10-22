@@ -91,9 +91,8 @@ struct RootView: View {
                     
                 SMSView()
                     .tabItem { Label("短信", systemImage: "message") }
-                    
                     .badge(sms.unread > 0 ? sms.unread : 0)
-                    .tag(2)
+                    .tag(3)
             }
             .accentColor(Theme.accent)
             .environmentObject(sms)
@@ -180,7 +179,7 @@ struct RootView: View {
                 divider
                 metric("memorychip", memText, "内存", Theme.text)
                 divider
-                metric("thermometer.medium", tempText, "温度", tempColor)
+                metric("thermometer.medium", tempText, "电池温度", tempColor)
             }
             .padding(.vertical, 6)
             .background(Theme.fill.opacity(0.7))
@@ -240,14 +239,17 @@ struct RootView: View {
         let totalGB = Double(total) / 1024.0 / 1024.0
         return String(format: "%.1f/%.0fG", usedGB, totalGB)
     }
+    /// 顶部温度显示电池温度（老板要求，不用 SoC 结温）
     private var tempText: String {
+        if let t = stats?.temp_batt_c, t > 0 { return String(format: "%.0f°", t) }
+        if let t = stats?.battery?.temperature_c, t > 0 { return String(format: "%.0f°", t) }
         if let t = stats?.temp_c, t > 0 { return String(format: "%.0f°", t) }
-        if let t = stats?.battery?.temperature_c { return String(format: "%.0f°", t) }
         return "--"
     }
     private var tempColor: Color {
-        guard let t = stats?.temp_c else { return Theme.text }
-        return t >= 55 ? Theme.red : (t >= 45 ? Theme.orange : Theme.text)
+        let t = stats?.temp_batt_c ?? stats?.battery?.temperature_c ?? 0
+        guard t > 0 else { return Theme.text }
+        return t >= 43 ? Theme.red : (t >= 38 ? Theme.orange : Theme.text)
     }
 
     private func refreshStats() async {

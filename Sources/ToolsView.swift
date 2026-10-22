@@ -24,6 +24,10 @@ struct ToolsView: View {
     @State private var pingResult = ""
     @State private var pingHost = "223.5.5.5"
 
+    // 充电控制
+    @State private var charge: ChargeStatus?
+    @State private var chargeBusy = false
+
     // OTA
     @State private var ota: OTAStatus?
     @State private var otaPolling = false
@@ -44,6 +48,7 @@ struct ToolsView: View {
         ScrollView {
             VStack(spacing: 12) {
                 deviceCard
+                chargeCard
                 terminalCard
                 fileCard
                 automationCard
@@ -56,9 +61,16 @@ struct ToolsView: View {
         .background(Theme.bg.ignoresSafeArea())
         .refreshable { await reloadAll() }
         .task(id: active) {
-            guard active, !loadedOnce else { return }
-            loadedOnce = true
-            await reloadAll()
+            guard active else { return }
+            if !loadedOnce {
+                loadedOnce = true
+                await reloadAll()
+            }
+            // 充电状态每 5 秒自动刷新
+            while !Task.isCancelled {
+                await refreshCharge()
+                try? await Task.sleep(nanoseconds: 5_000_000_000)
+            }
         }
         .sheet(isPresented: $showMacros) { MacrosView() }
         .sheet(isPresented: $showSchedule) { ScheduleView() }
@@ -134,6 +146,185 @@ struct ToolsView: View {
                 } else {
                     Text("尚未获取到设备信息").font(.system(size: 12)).foregroundColor(Theme.dim)
                 }
+            }
+        }
+    }
+
+    // MARK: 充电控制
+
+    private var chargeCard: some View {
+        Card {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(spacing: 8) {
+                    SectionTitle(text: "充电控制", icon: "bolt.batteryblock")
+                    Spacer()
+                    if let c = charge {
+                        TagView(text: chargeStateText(c), color: chargeStateColor(c))
+                    }
+                }
+
+                if let c = charge {
+                    HStack(alignment: .center, spacing: 12) {
+                        Text("\(c.level ?? 0)%")
+                            .font(.system(size: 26, weight: .bold, design: .rounded))
+                            .foregroundColor((c.level ?? 0) <= 20 ? Theme.red : Theme.text)
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(c.status?.isEmpty == false ? (c.status ?? "") : "—")
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundColor(Theme.sub)
+                            Text("电池 \(chargeFmt1(c.temp_batt))°C · SoC \(chargeFmt1(c.temp_soc))°C")
+                                .font(.system(size: 10))
+                                .foregroundColor(Theme.dim)
+                            Text("功率 \(chargeFmt2(c.power_w))W · \(chargeFmt2(c.voltage_v))V / \(chargeFmt2(c.current_a))A")
+                                .font(.system(size: 10))
+                                .foregroundColor(Theme.dim)
+                        }
+                        Spacer()
+                    }
+                    ProgressView(value: Double(c.level ?? 0), total: 100)
+                        .tint((c.level ?? 0) <= 20 ? Theme.red : Theme.accent)
+
+                    if c.supported == true {
+                        Toggle(isOn: Binding(
+                            get: { charge?.enabled ?? false },
+                            set: { v in setCharge(enabled: v) }
+                        )) {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("智能充电").font(.system(size: 13, weight: .semibold)).foregroundColor(Theme.text)
+                                Text("充到上限自动断电，掉到下限自动恢复")
+                                    .font(.system(size: 10)).foregroundColor(Theme.dim)
+                            }
+                        }
+                        .tint(Theme.accent)
+
+                        HStack(spacing: 10) {
+                            thresholdBox(title: "停止充电", value: charge?.stop_at ?? 85, minus: {
+                                setCharge(stopAt: max(40, (charge?.stop_at ?? 85) - 5))
+                            }, plus: {
+                                setCharge(stopAt: min(100, (charge?.stop_at ?? 85) + 5))
+                            })
+                            thresholdBox(title: "恢复充电", value: charge?.start_at ?? 35, minus: {
+                                setCharge(startAt: max(5, (charge?.start_at ?? 35) - 5))
+                            }, plus: {
+                                setCharge(startAt: min((charge?.stop_at ?? 85) - 5, (charge?.start_at ?? 35) + 5))
+                            })
+                        }
+
+                        HStack(spacing: 8) {
+                            Button {
+                                setCharge(action: "hold")
+                            } label: {
+                                Label("立即停止", systemImage: "pause.circle")
+                                    .font(.system(size: 12, weight: .semibold))
+                                    .frame(maxWidth: .infinity).padding(.vertical, 9)
+                                    .background(Theme.orange.opacity(0.12)).foregroundColor(Theme.orange)
+                                    .clipShape(RoundedRectangle(cornerRadius: 9))
+                            }
+                            Button {
+                                setCharge(action: "resume")
+                            } label: {
+                                Label("恢复充电", systemImage: "play.circle")
+                                    .font(.system(size: 12, weight: .semibold))
+                                    .frame(maxWidth: .infinity).padding(.vertical, 9)
+                                    .background(Theme.green.opacity(0.12)).foregroundColor(Theme.green)
+                                    .clipShape(RoundedRectangle(cornerRadius: 9))
+                            }
+                        }
+
+                        if let m = c.message, !m.isEmpty {
+                            Text(m).font(.system(size: 10)).foregroundColor(Theme.dim)
+                        }
+
+                        Button {
+                            act {
+                                _ = try await Agent.shared.exec("am kill-all")
+                                toast = "已清理后台进程，温度会慢慢降"
+                                await refreshCharge()
+                            }
+                        } label: {
+                            Label("清理后台降温", systemImage: "wind")
+                                .font(.system(size: 11, weight: .semibold))
+                                .frame(maxWidth: .infinity).padding(.vertical, 8)
+                                .background(Theme.blue.opacity(0.10)).foregroundColor(Theme.blue)
+                                .clipShape(RoundedRectangle(cornerRadius: 8))
+                        }
+                    } else {
+                        Text("本机没有可用的充电控制节点（需要 root 权限）")
+                            .font(.system(size: 11)).foregroundColor(Theme.dim)
+                    }
+                } else {
+                    HStack(spacing: 6) {
+                        ProgressView().scaleEffect(0.7)
+                        Text("读取充电状态…").font(.system(size: 11)).foregroundColor(Theme.dim)
+                    }
+                }
+            }
+        }
+    }
+
+    private func thresholdBox(title: String, value: Int, minus: @escaping () -> Void, plus: @escaping () -> Void) -> some View {
+        VStack(spacing: 6) {
+            Text(title).font(.system(size: 10)).foregroundColor(Theme.dim)
+            HStack(spacing: 8) {
+                Button { minus() } label: {
+                    Image(systemName: "minus.circle.fill").font(.system(size: 18)).foregroundColor(Theme.dim)
+                }
+                Text("\(value)%").font(.system(size: 15, weight: .bold, design: .rounded)).foregroundColor(Theme.text)
+                    .frame(minWidth: 42)
+                Button { plus() } label: {
+                    Image(systemName: "plus.circle.fill").font(.system(size: 18)).foregroundColor(Theme.accent)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity).padding(.vertical, 8)
+        .background(Theme.fill).clipShape(RoundedRectangle(cornerRadius: 9))
+    }
+
+    private func chargeStateText(_ c: ChargeStatus) -> String {
+        if c.supported != true { return "不支持" }
+        switch c.state ?? "" {
+        case "holding": return "已停止充电"
+        case "charging": return "充电中"
+        case "manual_hold": return "手动停充"
+        default: return c.enabled == true ? "智能充电开" : "智能充电关"
+        }
+    }
+
+    private func chargeStateColor(_ c: ChargeStatus) -> Color {
+        if c.supported != true { return Theme.dim }
+        switch c.state ?? "" {
+        case "holding", "manual_hold": return Theme.orange
+        case "charging": return Theme.green
+        default: return Theme.sub
+        }
+    }
+
+    private func chargeFmt1(_ v: Double?) -> String {
+        guard let v = v, v > 0 else { return "--" }
+        return String(format: "%.1f", v)
+    }
+
+    private func chargeFmt2(_ v: Double?) -> String {
+        guard let v = v else { return "--" }
+        return String(format: "%.2f", v)
+    }
+
+    private func refreshCharge() async {
+        if let c = try? await Agent.shared.charge() {
+            await MainActor.run { charge = c }
+        }
+    }
+
+    private func setCharge(enabled: Bool? = nil, stopAt: Int? = nil, startAt: Int? = nil, action: String? = nil) {
+        guard !chargeBusy else { return }
+        chargeBusy = true
+        Task {
+            defer { Task { @MainActor in chargeBusy = false } }
+            do {
+                let c = try await Agent.shared.setCharge(enabled: enabled, stopAt: stopAt, startAt: startAt, action: action)
+                await MainActor.run { charge = c }
+            } catch {
+                await MainActor.run { toast = app.friendly(error) }
             }
         }
     }
@@ -552,6 +743,7 @@ struct ToolsView: View {
         network = (try? await Agent.shared.network()) ?? ""
         display = (try? await Agent.shared.display()) ?? ""
         ota = try? await Agent.shared.otaStatus()
+        await refreshCharge()
     }
 
     private func loadApps() {
