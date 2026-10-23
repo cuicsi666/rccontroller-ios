@@ -303,10 +303,10 @@ final class Agent {
         return req
     }
 
-    private func send<T: Codable>(_ path: String, method: String = "GET", json: [String: Any]? = nil, as type: T.Type) async throws -> T {
+    private func send<T: Codable>(_ path: String, method: String = "GET", json: [String: Any]? = nil, as type: T.Type, timeout: TimeInterval? = nil) async throws -> T {
         var body: Data?
         if let json = json { body = try JSONSerialization.data(withJSONObject: json) }
-        let req = try makeRequest(path, method: method, body: body)
+        let req = try makeRequest(path, method: method, body: body, timeout: timeout)
         do {
             let (data, resp) = try await session.data(for: req)
             guard let http = resp as? HTTPURLResponse else { throw AgentError.network("无响应") }
