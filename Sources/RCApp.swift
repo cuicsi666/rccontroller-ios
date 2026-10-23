@@ -73,6 +73,7 @@ struct RootView: View {
     @State private var chargeBusy = false
     @State private var chargeToast: String?
     @State private var latency = 0
+    @State private var statFails = 0
 
     var body: some View {
         VStack(spacing: 0) {

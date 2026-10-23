@@ -80,4 +80,6 @@ struct PresetItem: Identifiable {
 
 extension Notification.Name {
     static let rcForeground = Notification.Name("rc.foreground")
+    /// V4.7：H.264 推流意外断开（ScreenView 监听后自动重启推流）
+    static let rcH264Died = Notification.Name("rc.h264Died")
 }

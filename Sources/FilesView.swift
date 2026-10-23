@@ -87,7 +87,7 @@ struct FilesView: View {
         }
         .sheet(item: $editingFile) { f in TextEditorSheet(file: f) { await load() } }
         .sheet(item: $playingFile) { f in MediaPlayerSheet(file: f) }
-        .sheet(isPresented: $showShare) { if let u = shareURL { ShareSheet(items: [u]) } }
+        .sheet(isPresented: $showShare) { if let u = shareURL { ShareSheet(items: [u] as [Any]) } }
         .sheet(isPresented: $showPreview) {
             if let img = previewImage {
                 VStack {

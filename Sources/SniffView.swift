@@ -65,7 +65,7 @@ struct SniffView: View {
                 }
             }
             .sheet(isPresented: $showShare) {
-                if let u = shareURL { ShareSheet(items: [u]) }
+                if let u = shareURL { ShareSheet(items: [u] as [Any]) }
             }
         }
         .task {
