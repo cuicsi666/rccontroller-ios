@@ -4,6 +4,7 @@ import UIKit
 struct ScreenView: View {
     @EnvironmentObject var app: AppState
     @StateObject private var stream = ScreenStream()
+    @StateObject private var fastPoller = FastPoller()
     @StateObject private var audio = AudioStreamer()
     @StateObject private var h264 = H264Stream()
 
@@ -32,7 +33,6 @@ struct ScreenView: View {
         .background(Theme.bg.ignoresSafeArea())
         .onAppear {
             startStream()
-            startFallbackPolling()
             startAdaptiveMonitor()
         }
         .onDisappear {
@@ -40,6 +40,7 @@ struct ScreenView: View {
             h264.stop()
             pollTask?.cancel()
             pollTask = nil
+            fastPoller.stop()
             monitorTask?.cancel()
             monitorTask = nil
             // V4.7 修复：离开屏幕页要恢复手机声音（原来 audio 泄漏，手机一直静音）
@@ -96,24 +97,18 @@ struct ScreenView: View {
                 }
             }
         } else {
-            stream.start(max: app.streamMaxWidth, q: app.streamQualityParam, fps: app.streamFPS)
+            // V4.7.2：iOS 27 对无限长流回调不派发 → JPEG 模式改用 3 并发快速轮询（5-7fps，滑动跟手）
+            fastPoller.start(max: app.streamMaxWidth, q: app.streamQualityParam)
         }
     }
 
     private func startFallbackPolling() {
+        // V4.7.2：兜底轮询已由 FastPoller 取代（fastPoller 本身就是并发轮询），仅保留首帧诊断标记
         pollTask?.cancel()
         pollTask = Task {
-            for i in 0..<40 {
+            for _ in 0..<40 {
                 if Task.isCancelled { return }
-                if useH264 { return }
-                if stream.connected && stream.image != nil { return }
-                do {
-                    let img = try await Agent.shared.screenshot(max: app.streamMaxWidth, quality: app.streamQualityParam)
-                    stream.setPolled(img)
-                    if i == 0 { Diag.mark("preview-ok") }
-                } catch {
-                    if i == 0 { Diag.err("preview: \(app.friendly(error))") }
-                }
+                if fastPoller.image != nil { Diag.mark("preview-ok"); return }
                 try? await Task.sleep(nanoseconds: 700_000_000)
             }
         }
@@ -127,7 +122,7 @@ struct ScreenView: View {
             while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: 3_000_000_000)
                 // 断流看门狗：连续 9 秒没画面就主动重启，避免一直卡在「连接中」
-                if !useH264 && !stream.connected {
+                if !useH264 && fastPoller.image == nil {
                     offlineTicks += 1
                     if offlineTicks >= 3 {
                         offlineTicks = 0
@@ -136,9 +131,9 @@ struct ScreenView: View {
                     continue
                 }
                 offlineTicks = 0
-                guard stream.connected, !useH264 else { continue }
+                guard fastPoller.image != nil, !useH264 else { continue }
                 let target = Double(app.streamFPS)
-                if stream.fps > 0 && stream.fps < target * 0.45 && app.quality > 0 {
+                if fastPoller.fps > 0 && fastPoller.fps < target * 0.45 && app.quality > 0 {
                     slowTicks += 1
                     if slowTicks >= 2 && !autoDowngraded {
                         autoDowngraded = true
@@ -158,16 +153,16 @@ struct ScreenView: View {
 
     private var statusBar: some View {
         HStack(spacing: 8) {
-            Circle().fill(stream.connected || h264.ready ? Theme.green : Theme.red).frame(width: 8, height: 8)
-            Text(h264.ready ? "H.264" : (stream.connected ? "实时" : "连接中…"))
+            Circle().fill(h264.ready || fastPoller.image != nil ? Theme.green : Theme.red).frame(width: 8, height: 8)
+            Text(h264.ready ? "H.264" : (fastPoller.image != nil ? "实时" : "连接中…"))
                 .font(.system(size: 11, weight: .semibold)).foregroundColor(Theme.sub)
             if h264.ready {
                 Text(String(format: "%.0f fps", h264.fps))
                     .font(.system(size: 10, design: .monospaced)).foregroundColor(Theme.dim)
-            } else if stream.connected {
-                Text(String(format: "%.1f fps · %d KB/s", stream.fps, stream.kbps))
+            } else if fastPoller.image != nil {
+                Text(String(format: "%.1f fps · %d KB/s", fastPoller.fps, fastPoller.kbps))
                     .font(.system(size: 10, design: .monospaced))
-                    .foregroundColor(stream.kbps > 250 ? Theme.orange : Theme.dim)
+                    .foregroundColor(fastPoller.kbps > 250 ? Theme.orange : Theme.dim)
             }
             Spacer()
             Button { Task { rotate() } } label: {
@@ -221,7 +216,7 @@ struct ScreenView: View {
                 if h264.ready {
                     H264View(layer: h264.layer)
                         .clipShape(RoundedRectangle(cornerRadius: fullscreen ? 0 : 14))
-                } else if let img = stream.image {
+                } else if let img = fastPoller.image {
                     Image(uiImage: img)
                         .resizable()
                         .interpolation(.medium)
@@ -229,15 +224,15 @@ struct ScreenView: View {
                         .position(x: rect.midX, y: rect.midY)
                 } else {
                     VStack(spacing: 10) {
-                        if stream.error == nil { ProgressView().tint(Theme.accent) }
-                        Text(stream.error ?? (useH264 ? "正在启动 H.264…" : "正在获取画面…"))
+                        ProgressView().tint(Theme.accent)
+                        Text(useH264 ? "正在启动 H.264…" : "正在获取画面…")
                             .font(.system(size: 13)).foregroundColor(.white.opacity(0.7))
                             .multilineTextAlignment(.center).padding()
                     }
                 }
 
                 // V4.7：重连水印——断流时明确提示画面可能不是实时的
-                if stream.reconnecting {
+                if stream.reconnecting && useH264 {
                     VStack(spacing: 6) {
                         ProgressView().tint(.white)
                         Text("连接断开，自动重连中…")
@@ -329,7 +324,7 @@ struct ScreenView: View {
         if h264.ready, let s = app.deviceInfo?.screen {
             return fitRect(imageSize: CGSize(width: s.width, height: s.height), in: size)
         }
-        if let img = stream.image {
+        if let img = fastPoller.image {
             return fitRect(imageSize: img.size, in: size)
         }
         if let s = app.deviceInfo?.screen {
