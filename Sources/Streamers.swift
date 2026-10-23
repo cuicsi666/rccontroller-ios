@@ -48,7 +48,7 @@ final class ScreenStream: NSObject, ObservableObject, URLSessionDataDelegate {
         // 注意：retries 不在这里清零（否则重连风暴），只在收到首帧时清零
         do {
             let req = try Agent.shared.streamURL(max: max, q: q, fps: fps)
-            let cfg = URLSessionConfiguration.default
+            let cfg = URLSessionConfiguration.ephemeral  // V4.7.1: ephemeral 禁缓存禁 cookie，防止推流请求被 URLCache 拦截
             cfg.timeoutIntervalForRequest = 600
             cfg.timeoutIntervalForResource = 3600
             let s = URLSession(configuration: cfg, delegate: self, delegateQueue: nil)
@@ -180,7 +180,7 @@ final class AudioStreamer: NSObject, ObservableObject, URLSessionDataDelegate {
         gotFirstByte = false
         do {
             let req = try Agent.shared.audioURL(rate: Int(sampleRate), mute: mutePhone)
-            let cfg = URLSessionConfiguration.default
+            let cfg = URLSessionConfiguration.ephemeral  // V4.7.1: ephemeral 禁缓存禁 cookie，防止推流请求被 URLCache 拦截
             cfg.timeoutIntervalForRequest = 600
             cfg.timeoutIntervalForResource = 3600
             let s = URLSession(configuration: cfg, delegate: self, delegateQueue: nil)

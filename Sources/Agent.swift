@@ -363,11 +363,20 @@ final class Agent {
     }
 
     func streamURL(max: Int = 720, q: Int = 58, fps: Int = 10) throws -> URLRequest {
-        try makeRequest("/api/screen/stream?max=\(max)&q=\(q)&fps=\(fps)", timeout: 600)
+        var req = try makeRequest("/api/screen/stream?max=\(max)&q=\(q)&fps=\(fps)", timeout: 600)
+        // V4.7.1：流式请求禁缓存/禁压缩，防止被 URLCache 或中间层拦截缓冲
+        req.cachePolicy = .reloadIgnoringLocalCacheData
+        req.setValue("no-cache", forHTTPHeaderField: "Cache-Control")
+        req.setValue("identity", forHTTPHeaderField: "Accept-Encoding")
+        return req
     }
 
     func audioURL(rate: Int = 24000, mute: Bool = true) throws -> URLRequest {
-        try makeRequest("/api/audio?rate=\(rate)&mute=\(mute ? 1 : 0)", timeout: 600)
+        var req = try makeRequest("/api/audio?rate=\(rate)&mute=\(mute ? 1 : 0)", timeout: 600)
+        req.cachePolicy = .reloadIgnoringLocalCacheData
+        req.setValue("no-cache", forHTTPHeaderField: "Cache-Control")
+        req.setValue("identity", forHTTPHeaderField: "Accept-Encoding")
+        return req
     }
 
     // MARK: 输入

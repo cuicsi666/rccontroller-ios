@@ -30,11 +30,14 @@ final class H264Stream: NSObject, ObservableObject, URLSessionDataDelegate {
         stop()
         stopping = false
         do {
-            let req = try Agent.shared.makeRequest("/api/h264", query: [
+            var req = try Agent.shared.makeRequest("/api/h264", query: [
                 URLQueryItem(name: "size", value: size),
                 URLQueryItem(name: "bitrate", value: String(bitrate))
             ], timeout: 600)
-            let cfg = URLSessionConfiguration.default
+            req.cachePolicy = .reloadIgnoringLocalCacheData
+            req.setValue("no-cache", forHTTPHeaderField: "Cache-Control")
+            req.setValue("identity", forHTTPHeaderField: "Accept-Encoding")
+            let cfg = URLSessionConfiguration.ephemeral  // V4.7.1: ephemeral 禁缓存禁 cookie，防止推流请求被 URLCache 拦截
             cfg.timeoutIntervalForRequest = 600
             cfg.timeoutIntervalForResource = 3600
             let s = URLSession(configuration: cfg, delegate: self, delegateQueue: nil)
