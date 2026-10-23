@@ -17,6 +17,9 @@ final class H264Stream: NSObject, ObservableObject, URLSessionDataDelegate {
     private var formatDesc: CMVideoFormatDescription?
     private var frames = 0
     private var lastTick = Date()
+    /// V4.7.4：数据饥饿看门狗——记录最近一次收到网络数据的时间
+    private var lastDataAt = Date()
+    private var stallTask: Task<Void, Never>?
     private var pts: Int64 = 0
     private var stopping = false
 
@@ -29,6 +32,8 @@ final class H264Stream: NSObject, ObservableObject, URLSessionDataDelegate {
     func start(size: String = "480x1066", bitrate: Int = 1_200_000) {
         stop()
         stopping = false
+        DispatchQueue.main.async { self.lastDataAt = Date() }
+        startStallWatchdog()
         do {
             var req = try Agent.shared.makeRequest("/api/h264", query: [
                 URLQueryItem(name: "size", value: size),
@@ -56,6 +61,8 @@ final class H264Stream: NSObject, ObservableObject, URLSessionDataDelegate {
         task = nil
         session?.invalidateAndCancel()
         session = nil
+        stallTask?.cancel()
+        stallTask = nil
         buffer.removeAll()
         sps = nil
         pps = nil
@@ -64,6 +71,33 @@ final class H264Stream: NSObject, ObservableObject, URLSessionDataDelegate {
     }
 
     // MARK: 网络
+
+    /// V4.7.4：数据饥饿看门狗
+    /// 场景：H264 源（screenrecord）在手机端到时限/异常退出后，TCP 连接不断但再无数据 → App 永远「正在启动 H.264…」
+    /// 检测：15 秒没收到任何网络数据就主动断开重连（didCompleteWithError → rcH264Died → ScreenView 自动重启）
+    private func startStallWatchdog() {
+        stallTask?.cancel()
+        stallTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 5_000_000_000)
+                guard let self = self, !self.stopping else { return }
+                let idle = await MainActor.run { Date().timeIntervalSince(self.lastDataAt) }
+                if idle > 15 {
+                    Diag.err("h264: \(Int(idle))s 无数据，主动重连")
+                    await MainActor.run {
+                        self.task?.cancel()
+                        self.task = nil
+                        self.session?.invalidateAndCancel()
+                        self.session = nil
+                        self.ready = false
+                        // 标记为数据饥饿重连（ScreenView 无限重试）
+                        NotificationCenter.default.post(name: .rcH264Died, object: "stall")
+                    }
+                    return
+                }
+            }
+        }
+    }
 
     func urlSession(_ session: URLSession, didReceive challenge: URLAuthenticationChallenge,
                     completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
@@ -74,6 +108,7 @@ final class H264Stream: NSObject, ObservableObject, URLSessionDataDelegate {
     }
 
     func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
+        DispatchQueue.main.async { self.lastDataAt = Date() }
         buffer.append(data)
         parseAndDecode()
     }

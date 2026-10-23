@@ -55,14 +55,18 @@ struct ScreenView: View {
             startStream()
             if audio.playing { audio.start(mutePhone: true) }
         }
-        // V4.7：H.264 意外断流自动重启（最多 3 次，仍失败回退 JPEG）
-        .onReceive(NotificationCenter.default.publisher(for: .rcH264Died)) { _ in
-            guard useH264, h264Retries < 3 else {
-                if useH264 { useH264 = false; flash("H.264 反复断流，已切回 JPEG") }
+        // V4.7.4：H.264 断流自动重启。区分两种情况：
+        // - 数据饥饿看门狗主动断开（error 为空）：无限重试（长时间观看时 screenrecord 到期是常态）
+        // - 真实网络错误：最多 3 次，仍失败回退 JPEG
+        .onReceive(NotificationCenter.default.publisher(for: .rcH264Died)) { note in
+            guard useH264 else { return }
+            let isStallReconnect = (note.object as? String) == "stall"
+            if !isStallReconnect && h264Retries >= 3 {
+                useH264 = false
+                flash("H.264 反复断流，已切回 JPEG")
                 return
             }
             h264Retries += 1
-            flash("H.264 断流，自动重启中…")
             startStream()
         }
         .sheet(isPresented: $showTextInput) { textSheet }
@@ -74,7 +78,7 @@ struct ScreenView: View {
     private func startStream() {
         stream.stop()
         h264.stop()
-        h264Retries = 0
+        // V4.7.4：h264Retries 由 rcH264Died 处理器管理，这里不再清零（避免 stall 重启清掉错误计数）
         if useH264 {
             h264StartedAt = Date()
             let w = app.streamMaxWidth
