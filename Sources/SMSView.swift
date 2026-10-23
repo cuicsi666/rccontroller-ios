@@ -23,7 +23,11 @@ final class SMSStore: ObservableObject {
         loopTask = Task { [weak self] in
             while !Task.isCancelled {
                 await self?.refresh()
-                try? await Task.sleep(nanoseconds: 8_000_000_000)
+                // V4.7：后台时把轮询间隔放宽到 60s（原来 8s 全量拉，耗电耗流量还抢推流带宽）
+                let interval = await MainActor.run { () -> Double in
+                    (UIApplication.shared.applicationState == .active) ? 8 : 60
+                }
+                try? await Task.sleep(nanoseconds: UInt64(interval * 1_000_000_000))
             }
         }
     }
@@ -38,14 +42,29 @@ final class SMSStore: ObservableObject {
 
     func refresh() async {
         do {
-            let list = try await Agent.shared.sms(limit: 100, sinceID: 0)
+            // V4.7：增量拉取（sinceID = 当前最大 id），不再每轮全量 100 条
+            let since = messages.map(\.id).max() ?? 0
+            let list = try await Agent.shared.sms(limit: 100, sinceID: since)
+            if since > 0 && list.isEmpty {
+                lastSync = Date(); lastError = nil
+                return
+            }
             let incoming = list.filter { $0.isInbox }
             var newOnes: [SMSMessage] = []
             for m in incoming where !seen.contains(m.id) {
                 if !seen.isEmpty { newOnes.append(m) }
             }
             for m in incoming { seen.insert(m.id) }
-            messages = list.sorted { $0.id > $1.id }
+            if since > 0 {
+                // 增量：新短信并入已有列表
+                let existing = Set(messages.map(\.id))
+                messages = (messages + list.filter { !existing.contains($0.id) }).sorted { $0.id > $1.id }
+            } else {
+                messages = list.sorted { $0.id > $1.id }
+            }
+            // V4.7：seen/notified 只保留最近 500 条，防无限增长
+            if seen.count > 500 { seen = Set(seen.sorted().suffix(500)) }
+            if notified.count > 500 { notified = Set(notified.sorted().suffix(500)) }
             lastSync = Date()
             lastError = nil
             if !newOnes.isEmpty {

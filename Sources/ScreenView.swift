@@ -13,9 +13,10 @@ struct ScreenView: View {
     @State private var showQuality = false
     @State private var toast: String?
     @State private var pressStartTime: Date?
-    @State private var busy = false
     @State private var lastTapAt: Date = .distantPast
     @State private var pollTask: Task<Void, Never>?
+    @State private var monitorTask: Task<Void, Never>?
+    @State private var h264Retries = 0
     @State private var fullscreen = false
     @State private var h264StartedAt: Date?
     @State private var slowTicks = 0
@@ -39,12 +40,29 @@ struct ScreenView: View {
             h264.stop()
             pollTask?.cancel()
             pollTask = nil
+            monitorTask?.cancel()
+            monitorTask = nil
+            // V4.7 修复：离开屏幕页要恢复手机声音（原来 audio 泄漏，手机一直静音）
+            if audio.playing {
+                audio.stop()
+                Task { _ = try? await Agent.shared.raw("/api/audio/stop", method: "POST") }
+            }
         }
         .onChange(of: app.quality) { _ in startStream() }
         .onChange(of: useH264) { _ in startStream() }
         .onReceive(NotificationCenter.default.publisher(for: .rcForeground)) { _ in
             startStream()
             if audio.playing { audio.start(mutePhone: true) }
+        }
+        // V4.7：H.264 意外断流自动重启（最多 3 次，仍失败回退 JPEG）
+        .onReceive(NotificationCenter.default.publisher(for: .rcH264Died)) { _ in
+            guard useH264, h264Retries < 3 else {
+                if useH264 { useH264 = false; flash("H.264 反复断流，已切回 JPEG") }
+                return
+            }
+            h264Retries += 1
+            flash("H.264 断流，自动重启中…")
+            startStream()
         }
         .sheet(isPresented: $showTextInput) { textSheet }
         .overlay(alignment: .top) { toastView }
@@ -55,6 +73,7 @@ struct ScreenView: View {
     private func startStream() {
         stream.stop()
         h264.stop()
+        h264Retries = 0
         if useH264 {
             h264StartedAt = Date()
             let w = app.streamMaxWidth
@@ -100,9 +119,10 @@ struct ScreenView: View {
         }
     }
 
-    /// 自适应：连续掉帧就把画质降一档
+    /// 自适应：连续掉帧就把画质降一档（V4.7：句柄存入 monitorTask，onDisappear 取消，不再越权常驻）
     private func startAdaptiveMonitor() {
-        Task {
+        monitorTask?.cancel()
+        monitorTask = Task {
             var offlineTicks = 0
             while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: 3_000_000_000)
@@ -177,9 +197,16 @@ struct ScreenView: View {
 
     private func rotate() {
         Task {
-            let cur = 0
-            try? await Agent.shared.raw("/api/rotate", method: "POST", json: ["rotation": cur])
-            flash("已切换手机方向")
+            do {
+                // V4.7 修复：先查当前方向再 +1（原来硬编码永远发 0，功能无效）
+                let cur: Int
+                if let obj = try? await Agent.shared.raw("/api/display") {
+                    let d = (obj["data"] as? [String: Any]) ?? obj
+                    cur = (d["rotation"] as? Int) ?? 0
+                } else { cur = 0 }
+                _ = try await Agent.shared.raw("/api/rotate", method: "POST", json: ["rotation": (cur + 1) % 4])
+                flash("已切换手机方向 → \(["竖屏", "横右", "倒竖", "横左"][(cur + 1) % 4])")
+            } catch { flash("旋转失败：\(app.friendly(error))") }
         }
     }
 
@@ -207,6 +234,19 @@ struct ScreenView: View {
                             .font(.system(size: 13)).foregroundColor(.white.opacity(0.7))
                             .multilineTextAlignment(.center).padding()
                     }
+                }
+
+                // V4.7：重连水印——断流时明确提示画面可能不是实时的
+                if stream.reconnecting {
+                    VStack(spacing: 6) {
+                        ProgressView().tint(.white)
+                        Text("连接断开，自动重连中…")
+                            .font(.system(size: 12, weight: .semibold)).foregroundColor(.white)
+                    }
+                    .padding(.horizontal, 18).padding(.vertical, 12)
+                    .background(Color.black.opacity(0.62))
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                    .transition(.opacity)
                 }
 
                 // 手势层：不管 H.264 还是 JPEG 都覆盖在画面区域上
@@ -243,7 +283,7 @@ struct ScreenView: View {
                             sideButton("power", "电源") { try await Agent.shared.key("power") }
                             sideButton("sun.max", "唤醒") { try await Agent.shared.key("wake") }
                             sideButton("speaker.wave.2", "音量+") { try await Agent.shared.key("volume_up") }
-                            sideButton("speaker.slash", "音量-") { try await Agent.shared.key("volume_down") }
+                            sideButton("speaker.minus", "音量-") { try await Agent.shared.key("volume_down") }
                             sideButton(audio.playing ? "speaker.slash.fill" : "speaker.wave.2.fill",
                                        audio.playing ? "关声音" : "同步声音") { toggleAudio() }
                             sideButton("square.and.arrow.down", "截图") { saveScreenshot() }
@@ -422,11 +462,13 @@ struct ScreenView: View {
     }
 
     private func send(_ op: @escaping () async throws -> Void) {
-        guard !busy else { return }
-        busy = true
+        // V4.7 流畅度核心修复：去掉 busy 全局互斥（原来一条 tap 未返回会静默丢弃后续所有触控）
+        // 改为并发发送 + 触控请求 4-5s 短超时，指令不再堆积丢失；成功时轻震动反馈
         Task {
-            defer { busy = false }
-            do { try await op() } catch { flash(app.friendly(error)) }
+            do {
+                try await op()
+                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            } catch { flash(app.friendly(error)) }
         }
     }
 

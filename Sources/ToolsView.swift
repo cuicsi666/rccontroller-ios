@@ -50,6 +50,7 @@ struct ToolsView: View {
             VStack(spacing: 12) {
                 deviceCard
                 chargeCard
+                newFeaturesCard
                 sniffCard
                 terminalCard
                 fileCard
@@ -75,6 +76,9 @@ struct ToolsView: View {
             }
         }
         .sheet(isPresented: $showSniff) { SniffView().environmentObject(app) }
+        .sheet(isPresented: $showClipboard) { NavigationView { ClipboardSyncView().navigationTitle("剪贴板同步").navigationBarTitleDisplayMode(.inline).toolbar { ToolbarItem(placement: .confirmationAction) { Button("关闭") { showClipboard = false } } } }.preferredColorScheme(.light) }
+        .sheet(isPresented: $showVoice) { NavigationView { VoiceRemoteView().navigationTitle("语音遥控").navigationBarTitleDisplayMode(.inline).toolbar { ToolbarItem(placement: .confirmationAction) { Button("关闭") { showVoice = false } } } }.preferredColorScheme(.light) }
+        .sheet(isPresented: $showTaskd) { NavigationView { TaskdPanelView().navigationTitle("自动化任务").navigationBarTitleDisplayMode(.inline).toolbar { ToolbarItem(placement: .confirmationAction) { Button("关闭") { showTaskd = false } } } }.preferredColorScheme(.light) }
         .sheet(isPresented: $showMacros) { MacrosView() }
         .sheet(isPresented: $showSchedule) { ScheduleView() }
         .sheet(isPresented: $showFiles) {
@@ -115,6 +119,37 @@ struct ToolsView: View {
                     .clipShape(Capsule()).padding(.bottom, 16)
             }
         }
+    }
+
+    // MARK: V4.7 新功能卡
+
+    @State private var showClipboard = false
+    @State private var showVoice = false
+    @State private var showTaskd = false
+
+    private var newFeaturesCard: some View {
+        Card {
+            VStack(alignment: .leading, spacing: 10) {
+                SectionTitle(text: "新功能", icon: "sparkles")
+                HStack(spacing: 10) {
+                    featBtn("剪贴板同步", "doc.on.clipboard") { showClipboard = true }
+                    featBtn("语音遥控", "mic.fill") { showVoice = true }
+                    featBtn("任务面板", "timer") { showTaskd = true }
+                }
+            }
+        }
+    }
+
+    private func featBtn(_ t: String, _ icon: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            VStack(spacing: 6) {
+                Image(systemName: icon).font(.system(size: 20)).foregroundColor(Theme.accent)
+                Text(t).font(.system(size: 11, weight: .medium)).foregroundColor(Theme.text)
+            }
+            .frame(maxWidth: .infinity).padding(.vertical, 12)
+            .background(Theme.fill).clipShape(RoundedRectangle(cornerRadius: 10))
+        }
+        .buttonStyle(.plain)
     }
 
     // MARK: 设备

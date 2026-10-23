@@ -92,20 +92,35 @@ enum Diag {
         req.httpBody = data
         let cfg = URLSessionConfiguration.ephemeral
         cfg.timeoutIntervalForRequest = 8
-        let s = URLSession(configuration: cfg, delegate: TrustAllDelegate(), delegateQueue: nil)
+        // V4.7 修复：复用共享诊断 session + 同步上报改后台等待（不再每条日志新建实例、不再阻塞线程）
+        let s = staticDiagSession ?? URLSession(configuration: cfg, delegate: TrustAllDelegate(), delegateQueue: nil)
         let task = s.dataTask(with: req)
         task.resume()
         if sync {
-            // 首次启动同步上报，保证崩溃前也能落盘
             let sem = DispatchSemaphore(value: 0)
-            let obs = s.dataTask(with: req) { _, _, _ in sem.signal() }
-            obs.resume()
-            _ = sem.wait(timeout: .now() + 1.8)
-            obs.cancel()
+            s.dataTask(with: req) { _, _, _ in sem.signal() }.resume()
+            DispatchQueue.global(qos: .utility).async {
+                _ = sem.wait(timeout: .now() + 1.8)
+            }
         }
         _ = comp
     }
 }
+
+/// V4.7：诊断上报专用 session（复用，避免每条日志新建实例泄漏）
+private let diagSessionQueue = DispatchQueue(label: "rc.diag.session")
+private var _diagSession: URLSession?
+private var staticDiagSession: URLSession? {
+    get {
+        if let s = diagSessionQueue.sync(execute: { _diagSession }) { return s }
+        let cfg = URLSessionConfiguration.ephemeral
+        cfg.timeoutIntervalForRequest = 8
+        let s = URLSession(configuration: cfg, delegate: TrustAllDelegate(), delegateQueue: nil)
+        diagSessionQueue.sync { _diagSession = s }
+        return s
+    }
+}
+
 
 struct DiagView: View {
     var onEnter: () -> Void = {}

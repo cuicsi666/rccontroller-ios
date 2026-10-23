@@ -79,13 +79,28 @@ final class H264Stream: NSObject, ObservableObject, URLSessionDataDelegate {
         if task !== self.task { return }
         DispatchQueue.main.async {
             self.ready = false
-            if let e = error, !self.stopping { self.error = e.localizedDescription }
+            if let e = error, !self.stopping {
+                self.error = e.localizedDescription
+                // V4.7 修复：H.264 意外断流后通知 ScreenView 自动重启（原来永久黑屏卡死）
+                if !self.stopping {
+                    NotificationCenter.default.post(name: .rcH264Died, object: nil)
+                }
+            }
         }
     }
 
     // MARK: 解析 Annex-B
 
     private func parseAndDecode() {
+        // V4.7 修复：缓冲加 2MB 硬上限（原来垃圾数据会让内存无限增长），同时清参数集迫使重新握手
+        if buffer.count > 2_000_000 {
+            buffer.removeAll()
+            sps = nil
+            pps = nil
+            formatDesc = nil
+            DispatchQueue.main.async { self.ready = false }
+            return
+        }
         while true {
             guard let range = nextStartCode(in: buffer) else { return }
             let after = range.upperBound
@@ -118,6 +133,7 @@ final class H264Stream: NSObject, ObservableObject, URLSessionDataDelegate {
         switch type {
         case 7:
             sps = nal
+            formatDesc = nil   // V4.7：SPS 变化时强制重建 formatDesc（分辨率/码率切换不花屏）
             tryMakeFormat()
         case 8:
             pps = nal

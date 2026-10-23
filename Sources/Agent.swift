@@ -372,20 +372,20 @@ final class Agent {
 
     // MARK: 输入
 
-    func tap(x: Int, y: Int) async throws { _ = try await send("/api/input/tap", method: "POST", json: ["x": x, "y": y], as: ExecResult.self) }
+    func tap(x: Int, y: Int) async throws { _ = try await send("/api/input/tap", method: "POST", json: ["x": x, "y": y], as: ExecResult.self, timeout: 4) }
     func swipe(x1: Int, y1: Int, x2: Int, y2: Int, ms: Int = 300) async throws {
-        _ = try await send("/api/input/swipe", method: "POST", json: ["x1": x1, "y1": y1, "x2": x2, "y2": y2, "ms": ms], as: ExecResult.self)
+        _ = try await send("/api/input/swipe", method: "POST", json: ["x1": x1, "y1": y1, "x2": x2, "y2": y2, "ms": ms], as: ExecResult.self, timeout: 5)
     }
     func longPress(x: Int, y: Int, ms: Int = 800) async throws {
-        _ = try await send("/api/input/longpress", method: "POST", json: ["x": x, "y": y, "ms": ms], as: ExecResult.self)
+        _ = try await send("/api/input/longpress", method: "POST", json: ["x": x, "y": y, "ms": ms], as: ExecResult.self, timeout: 5)
     }
     func pinch(cx: Int, cy: Int, from: Int, to: Int, ms: Int = 320) async throws {
         _ = try await raw("/api/input/pinch", method: "POST",
                           json: ["CX": cx, "CY": cy, "Dist1": from, "Dist2": to, "MS": ms])
     }
 
-    func key(_ name: String) async throws { _ = try await send("/api/input/key", method: "POST", json: ["name": name], as: ExecResult.self) }
-    func text(_ s: String) async throws -> ExecResult { try await send("/api/input/text", method: "POST", json: ["text": s], as: ExecResult.self) }
+    func key(_ name: String) async throws { _ = try await send("/api/input/key", method: "POST", json: ["name": name], as: ExecResult.self, timeout: 4) }
+    func text(_ s: String) async throws -> ExecResult { try await send("/api/input/text", method: "POST", json: ["text": s], as: ExecResult.self, timeout: 6) }
 
     // MARK: 应用
 

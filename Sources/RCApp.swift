@@ -66,6 +66,7 @@ struct RootView: View {
     @State private var backgroundedAt: Date?
     @EnvironmentObject var app: AppState
     @StateObject private var sms = SMSStore()
+    @StateObject private var deviceStore = DeviceStore()
     @State private var tab = 0
     @State private var showSettings = false
     @State private var stats: LiveStats?
@@ -157,10 +158,13 @@ struct RootView: View {
                         .foregroundColor(Theme.accent)
                 }
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(app.deviceInfo?.displayModel ?? "远程被控端")
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundColor(Theme.text)
-                        .lineLimit(1)
+                    // V4.7 多设备：点型号可下拉切换设备
+                    DeviceSwitcher(store: deviceStore) {
+                        Task {
+                            await app.connect()
+                            NotificationCenter.default.post(name: .rcForeground, object: nil)
+                        }
+                    }
                     HStack(spacing: 5) {
                         if let a = app.deviceInfo?.android, !a.isEmpty {
                             Text("Android \(a)").font(.system(size: 10)).foregroundColor(Theme.dim)
@@ -324,9 +328,15 @@ struct RootView: View {
                 stats = s
                 latency = ms
                 app.connected = true
+                statFails = 0
             }
         } catch {
-            await MainActor.run { latency = 0 }
+            // V4.7 修复：连续 2 次失败就把状态置为断开（原来永远显示绿点「已连接」）
+            await MainActor.run {
+                latency = 0
+                statFails += 1
+                if statFails >= 2 { app.connected = false }
+            }
         }
     }
 

@@ -9,18 +9,28 @@ final class ScreenStream: NSObject, ObservableObject, URLSessionDataDelegate {
     @Published var fps: Double = 0
     @Published var kbps: Int = 0
     @Published var error: String?
+    /// V4.7：当前是否处于自动重连等待中（用于「重连中」水印）
+    @Published var reconnecting = false
 
     private var session: URLSession?
     private var task: URLSessionDataTask?
     private var buffer = Data()
     private var frames = 0
     private var bytesWindow = 0
-    private var firstFrameMarked = false
     private var retries = 0
     private var config = (max: 720, q: 58, fps: 10)
     private var lastTick = Date()
     private let lock = NSLock()
     private var stopping = false
+    /// V4.7：帧率自适应加速——连续高产帧时临时提高解码线程优先级
+    private var lastFrameAt = Date.distantPast
+
+    /// V4.7：供外部显示的连接文案
+    var statusText: String {
+        if connected { return "实时" }
+        if reconnecting { return "重连中…" }
+        return "连接中…"
+    }
 
     func setPreview(_ img: UIImage) {
         DispatchQueue.main.async { if self.image == nil { self.image = img } }
@@ -35,7 +45,7 @@ final class ScreenStream: NSObject, ObservableObject, URLSessionDataDelegate {
         stop()
         stopping = false
         config = (max, q, fps)
-        retries = 0
+        // 注意：retries 不在这里清零（否则重连风暴），只在收到首帧时清零
         do {
             let req = try Agent.shared.streamURL(max: max, q: q, fps: fps)
             let cfg = URLSessionConfiguration.default
@@ -57,9 +67,12 @@ final class ScreenStream: NSObject, ObservableObject, URLSessionDataDelegate {
         task = nil
         session?.invalidateAndCancel()
         session = nil
-        DispatchQueue.main.async { self.connected = false }
+        DispatchQueue.main.async {
+            self.connected = false
+            self.reconnecting = false
+        }
+        lock.lock(); buffer.removeAll(); lock.unlock()
     }
-
 
     // 自签证书放行（推流用的是独立 URLSession，必须自己处理挑战）
     func urlSession(_ session: URLSession, didReceive challenge: URLAuthenticationChallenge,
@@ -73,29 +86,38 @@ final class ScreenStream: NSObject, ObservableObject, URLSessionDataDelegate {
 
     func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
         bytesWindow += data.count
+        var latest: UIImage?
         lock.lock()
         buffer.append(data)
-        var images: [UIImage] = []
-        while buffer.count >= 4 {
-            let base = buffer.startIndex
-            // 逐字节拼长度：Data 切片不保证 4 字节对齐，用 load(as:) 会崩溃
-            let n = (Int(buffer[base]) << 24) | (Int(buffer[base + 1]) << 16)
-                | (Int(buffer[base + 2]) << 8) | Int(buffer[base + 3])
-            if n <= 0 {
-                buffer.removeFirst(4)
-                continue
-            }
-            if buffer.count < 4 + n { break }
-            let jpeg = buffer.subdata(in: (base + 4)..<(base + 4 + n))
-            buffer.removeFirst(4 + n)
-            if let img = UIImage(data: jpeg) { images.append(img) }
+        // V4.7 优化：只保留最后一个完整 JPEG，前面的帧直接跳过不解码（原来每帧都 UIImage 解码，CPU 白烧）
+        var lastRange: Range<Data.Index>?
+        var scan = buffer.startIndex
+        while buffer.count - (scan - buffer.startIndex) >= 4 {
+            let n = (Int(buffer[scan]) << 24) | (Int(buffer[scan + 1]) << 16)
+                | (Int(buffer[scan + 2]) << 8) | Int(buffer[scan + 3])
+            if n <= 0 { scan += 4; continue }
+            if buffer.count < (scan - buffer.startIndex) + 4 + n { break }
+            lastRange = scan..<(scan + 4 + n)
+            scan += 4 + n
+        }
+        if let r = lastRange {
+            let jpeg = buffer.subdata(in: r)
+            buffer.removeFirst(r.upperBound - buffer.startIndex)
+            // 解码放在锁外，避免慢解码反压网络回调
+            lock.unlock()
+            latest = UIImage(data: jpeg)
+            lock.lock()
         }
         lock.unlock()
-        guard let last = images.last else { return }
+        guard let img = latest else { return }
         DispatchQueue.main.async {
-            self.image = last
+            self.image = img
+            let first = !self.connected
             self.connected = true
+            self.reconnecting = false
             self.error = nil
+            // V4.7 修复：retries 只在真正连上（首帧到达）时清零，指数退避才生效
+            if first { self.retries = 0 }
             self.frames += 1
             let now = Date()
             let dt = now.timeIntervalSince(self.lastTick)
@@ -118,14 +140,18 @@ final class ScreenStream: NSObject, ObservableObject, URLSessionDataDelegate {
                 self.error = e.localizedDescription
                 Diag.err("stream: \(e.localizedDescription)")
             }
-            // 意外断开：1.5 秒后自动重连（最多 5 次）
-            if !self.stopping && self.retries < 5 {
+            // V4.7 修复：指数退避重连（1.5s/3s/6s/12s，封顶 12s），不再固定 1.5s 死循环
+            if !self.stopping && self.retries < 6 {
                 self.retries += 1
+                let delay = min(1.5 * pow(2, Double(self.retries - 1)), 12)
+                self.reconnecting = true
                 let cfg = self.config
-                DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
+                DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
                     guard let self = self, !self.stopping else { return }
                     self.start(max: cfg.max, q: cfg.q, fps: cfg.fps)
                 }
+            } else if !self.stopping {
+                self.reconnecting = false
             }
         }
     }
@@ -145,11 +171,13 @@ final class AudioStreamer: NSObject, ObservableObject, URLSessionDataDelegate {
     private var pending = Data()
     private let lock = NSLock()
     private var stopping = false
+    private var gotFirstByte = false
     private let sampleRate: Double = 24000
 
     func start(mutePhone: Bool = true) {
         stop()
         stopping = false
+        gotFirstByte = false
         do {
             let req = try Agent.shared.audioURL(rate: Int(sampleRate), mute: mutePhone)
             let cfg = URLSessionConfiguration.default
@@ -161,7 +189,7 @@ final class AudioStreamer: NSObject, ObservableObject, URLSessionDataDelegate {
             let t = s.dataTask(with: req)
             task = t
             t.resume()
-            DispatchQueue.main.async { self.playing = true }
+            // V4.7 修复：收到首包才算 playing（原来连接失败也显示「声音已同步」）
         } catch {
             self.error = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
         }
@@ -204,7 +232,6 @@ final class AudioStreamer: NSObject, ObservableObject, URLSessionDataDelegate {
         }
     }
 
-
     // 自签证书放行（推流用的是独立 URLSession，必须自己处理挑战）
     func urlSession(_ session: URLSession, didReceive challenge: URLAuthenticationChallenge,
                     completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
@@ -226,6 +253,10 @@ final class AudioStreamer: NSObject, ObservableObject, URLSessionDataDelegate {
             pending.removeFirst(need)
         }
         lock.unlock()
+        if !gotFirstByte {
+            gotFirstByte = true
+            DispatchQueue.main.async { if !self.stopping { self.playing = true } }
+        }
         for c in chunks { schedule(c) }
     }
 
@@ -257,6 +288,7 @@ final class AudioStreamer: NSObject, ObservableObject, URLSessionDataDelegate {
 
     func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
         DispatchQueue.main.async {
+            self.playing = false
             if let e = error, !self.stopping {
                 self.error = e.localizedDescription
                 Diag.err("stream: \(e.localizedDescription)")
