@@ -48,8 +48,7 @@ final class FastPoller: NSObject, ObservableObject {
                 latestSeq &+= 1
                 let seq = latestSeq
                 lock.unlock()
-                let size = max(img.size.width * img.size.height, 1) > 0 ? 40_000 : 0
-                deliver(img, seq: seq, bytes: size)
+                deliver(img, seq: seq, bytes: 40000)
                 // 短暂让出，避免 3 个 worker 完全同步
                 try? await Task.sleep(nanoseconds: UInt64(30 * (id + 1) * 1_000_000))
             } catch {
