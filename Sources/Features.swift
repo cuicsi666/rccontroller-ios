@@ -218,7 +218,9 @@ final class VoiceController: NSObject, ObservableObject, SFSpeechRecognizerDeleg
         let s = await withCheckedContinuation { c in
             SFSpeechRecognizer.requestAuthorization { c.resume(returning: $0 == .authorized) }
         }
-        let m = await AVAudioApplication.requestRecordPermission()
+        let m = await withCheckedContinuation { (c: CheckedContinuation<Bool, Never>) in
+            AVAudioSession.sharedInstance().requestRecordPermission { c.resume(returning: $0) }
+        }
         return s && m
     }
 
