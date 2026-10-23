@@ -262,6 +262,8 @@ final class Agent {
         var s = base.trimmingCharacters(in: .whitespacesAndNewlines)
         if !s.lowercased().hasPrefix("http") { s = "https://" + s }
         while s.hasSuffix("/") { s.removeLast() }
+        // V4.7.3：老地址 18888(rcgw h2) → 18890(nginx http/1.1-only)，绕开 iOS 27 长流 bug
+        if s.contains("110.42.185.227:18888") { s = s.replacingOccurrences(of: "110.42.185.227:18888", with: "110.42.185.227:18890") }
         lock.lock()
         _base = URL(string: s)
         _token = token.trimmingCharacters(in: .whitespacesAndNewlines)
