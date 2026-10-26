@@ -217,7 +217,7 @@ struct RootView: View {
         .task {
             while !Task.isCancelled {
                 await refreshStats()
-                try? await Task.sleep(nanoseconds: 6_000_000_000)
+                try? await Task.sleep(nanoseconds: 15_000_000_000)
             }
         }
     }

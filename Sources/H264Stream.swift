@@ -21,6 +21,7 @@ final class H264Stream: NSObject, ObservableObject, URLSessionDataDelegate {
     private var lastDataAt = Date()
     private var stallTask: Task<Void, Never>?
     private var pts: Int64 = 0
+    private var streamStart: Date?
     private var stopping = false
 
     lazy var layer: AVSampleBufferDisplayLayer = {
@@ -232,11 +233,15 @@ final class H264Stream: NSObject, ObservableObject, URLSessionDataDelegate {
 
         var sample: CMSampleBuffer?
         var sizeArray = [avcc.count]
+        // 真实时间戳：避免低帧率时时间轴滞后造成画面越看越延迟
+        if streamStart == nil { streamStart = Date() }
+        let nowMs = Int64(Date().timeIntervalSince(streamStart!) * 1000)
+        let durMs = max(20, nowMs - pts)
+        pts = nowMs
         var timing = CMSampleTimingInfo(
-            duration: CMTime(value: 1, timescale: 30),
-            presentationTimeStamp: CMTime(value: pts, timescale: 1000),
+            duration: CMTime(value: durMs, timescale: 1000),
+            presentationTimeStamp: CMTime(value: nowMs, timescale: 1000),
             decodeTimeStamp: .invalid)
-        pts += 33
         let sStatus = CMSampleBufferCreateReady(
             allocator: kCFAllocatorDefault,
             dataBuffer: bb,
@@ -263,7 +268,7 @@ final class H264Stream: NSObject, ObservableObject, URLSessionDataDelegate {
             self.frames += 1
             let now = Date()
             let dt = now.timeIntervalSince(self.lastTick)
-            if dt >= 1 {
+            if dt >= 3 {
                 self.fps = Double(self.frames) / dt
                 self.frames = 0
                 self.lastTick = now

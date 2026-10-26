@@ -121,7 +121,7 @@ final class ScreenStream: NSObject, ObservableObject, URLSessionDataDelegate {
             self.frames += 1
             let now = Date()
             let dt = now.timeIntervalSince(self.lastTick)
-            if dt >= 1 {
+            if dt >= 3 {
                 self.fps = Double(self.frames) / dt
                 self.kbps = Int(Double(self.bytesWindow) / dt / 1024)
                 self.frames = 0

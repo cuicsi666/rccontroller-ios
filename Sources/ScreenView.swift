@@ -15,6 +15,8 @@ struct ScreenView: View {
     @State private var toast: String?
     @State private var pressStartTime: Date?
     @State private var lastTapAt: Date = .distantPast
+    @State private var lastDragPoint: CGPoint?
+    @State private var lastDragAt: Date = .distantPast
     @State private var pollTask: Task<Void, Never>?
     @State private var monitorTask: Task<Void, Never>?
     @State private var h264Retries = 0
@@ -347,10 +349,33 @@ struct ScreenView: View {
         return CGRect(origin: .zero, size: size)
     }
 
+    /// 屏幕坐标 → 设备坐标
+    private func toDevice(_ p: CGPoint, rect: CGRect) -> (Int, Int) {
+        guard let screen = app.deviceInfo?.screen else { return (0, 0) }
+        let rx = min(max((p.x - rect.minX) / max(rect.width, 1), 0), 1)
+        let ry = min(max((p.y - rect.minY) / max(rect.height, 1), 0), 1)
+        return (Int(Double(screen.width) * rx), Int(Double(screen.height) * ry))
+    }
+
     private func dragGesture(rect: CGRect) -> some Gesture {
         DragGesture(minimumDistance: 0, coordinateSpace: .local)
-            .onChanged { _ in
-                if pressStartTime == nil { pressStartTime = Date() }
+            .onChanged { value in
+                if pressStartTime == nil {
+                    pressStartTime = Date()
+                    lastDragPoint = value.startLocation
+                    lastDragAt = .distantPast
+                }
+                // 拖动跟手：每 70ms 把这一小段位移发给手机，画面里手指会真的跟着走
+                let now = Date()
+                guard now.timeIntervalSince(lastDragAt) >= 0.07 else { return }
+                let prev = lastDragPoint ?? value.startLocation
+                let moved = hypot(value.location.x - prev.x, value.location.y - prev.y)
+                guard moved > 4 else { return }
+                let (sx, sy) = toDevice(prev, rect: rect)
+                let (ex, ey) = toDevice(value.location, rect: rect)
+                lastDragAt = now
+                lastDragPoint = value.location
+                sendInput { try await Agent.shared.swipe(x1: sx, y1: sy, x2: ex, y2: ey, ms: 70) }
             }
             .onEnded { value in
                 let dur = Date().timeIntervalSince(pressStartTime ?? Date())
@@ -359,25 +384,29 @@ struct ScreenView: View {
                 let dx = value.location.x - start.x
                 let dy = value.location.y - start.y
                 let dist = sqrt(dx * dx + dy * dy)
-                guard let screen = app.deviceInfo?.screen else { return }
-                func toDevice(_ p: CGPoint) -> (Int, Int) {
-                    let rx = min(max((p.x - rect.minX) / max(rect.width, 1), 0), 1)
-                    let ry = min(max((p.y - rect.minY) / max(rect.height, 1), 0), 1)
-                    return (Int(Double(screen.width) * rx), Int(Double(screen.height) * ry))
-                }
-                let (sx, sy) = toDevice(start)
-                if dist < 14 { addRipple(start) }
+                let prev = lastDragPoint
+                lastDragPoint = nil
+                lastDragAt = .distantPast
+
+                let (sx, sy) = toDevice(start, rect: rect)
                 if dist < 14 {
+                    addRipple(start)
                     if dur >= 0.55 {
-                        send { try await Agent.shared.longPress(x: sx, y: sy, ms: Int(dur * 1000)) }
+                        sendInput { try await Agent.shared.longPress(x: sx, y: sy, ms: Int(dur * 1000)) }
                     } else {
                         if Date().timeIntervalSince(lastTapAt) < 0.06 { return }
                         lastTapAt = Date()
-                        send { try await Agent.shared.tap(x: sx, y: sy) }
+                        sendInput { try await Agent.shared.tap(x: sx, y: sy) }
                     }
                 } else {
-                    let (ex, ey) = toDevice(value.location)
-                    send { try await Agent.shared.swipe(x1: sx, y1: sy, x2: ex, y2: ey, ms: 220) }
+                    // 补最后一段（拖动过程中可能来不及发）
+                    let from = prev ?? start
+                    let moved = hypot(value.location.x - from.x, value.location.y - from.y)
+                    if moved > 4 {
+                        let (fx, fy) = toDevice(from, rect: rect)
+                        let (ex, ey) = toDevice(value.location, rect: rect)
+                        sendInput { try await Agent.shared.swipe(x1: fx, y1: fy, x2: ex, y2: ey, ms: 60) }
+                    }
                 }
             }
     }
