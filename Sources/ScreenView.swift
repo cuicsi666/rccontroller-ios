@@ -396,6 +396,7 @@ struct ScreenView: View {
                     } else {
                         if Date().timeIntervalSince(lastTapAt) < 0.06 { return }
                         lastTapAt = Date()
+                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
                         sendInput { try await Agent.shared.tap(x: sx, y: sy) }
                     }
                 } else {
@@ -497,6 +498,13 @@ struct ScreenView: View {
                 UIImageWriteToSavedPhotosAlbum(img, nil, nil, nil)
                 flash("已保存到相册")
             } catch { flash("保存失败：\(app.friendly(error))") }
+        }
+    }
+
+    /// 触控专用：不等待返回、失败静默，保证连点和拖动不被阻塞
+    private func sendInput(_ op: @escaping () async throws -> Void) {
+        Task {
+            do { try await op() } catch { /* 触控失败静默，避免弹提示挡住画面 */ }
         }
     }
 
