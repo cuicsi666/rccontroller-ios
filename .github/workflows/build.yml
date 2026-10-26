@@ -35,7 +35,7 @@ jobs:
           mkdir -p out/Payload
           cp -R "$APP" out/Payload/
           cd out
-          zip -qry "远程控制_V4.9.ipa" Payload
+          zip -qry "远程控制_V5.0.ipa" Payload
           ls -lh
           /usr/libexec/PlistBuddy -c "Print :CFBundleDisplayName" "Payload/$(basename "$APP")/Info.plist" || true
           /usr/libexec/PlistBuddy -c "Print :CFBundleIcons" "Payload/$(basename "$APP")/Info.plist" || true

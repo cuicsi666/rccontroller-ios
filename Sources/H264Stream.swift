@@ -73,9 +73,9 @@ final class H264Stream: NSObject, ObservableObject, URLSessionDataDelegate {
 
     // MARK: 网络
 
-    /// V4.7.4：数据饥饿看门狗
-    /// 场景：H264 源（screenrecord）在手机端到时限/异常退出后，TCP 连接不断但再无数据 → App 永远「正在启动 H.264…」
-    /// 检测：15 秒没收到任何网络数据就主动断开重连（didCompleteWithError → rcH264Died → ScreenView 自动重启）
+    /// V5.0：数据饥饿看门狗（放宽到 45 秒）
+    /// 关键：H.264 是差分编码，手机画面**静止时不会产生新帧**，原来 15 秒阈值会把"静止"误判成"断流"，
+    /// 导致每 15~20 秒重连一次、画面黑一下 —— 这是持续卡顿的主要来源之一。
     private func startStallWatchdog() {
         stallTask?.cancel()
         stallTask = Task { [weak self] in
@@ -83,8 +83,8 @@ final class H264Stream: NSObject, ObservableObject, URLSessionDataDelegate {
                 try? await Task.sleep(nanoseconds: 5_000_000_000)
                 guard let self = self, !self.stopping else { return }
                 let idle = await MainActor.run { Date().timeIntervalSince(self.lastDataAt) }
-                if idle > 15 {
-                    Diag.err("h264: \(Int(idle))s 无数据，主动重连")
+                if idle > 45 {
+                    Diag.err("h264: \(Int(idle))s 无画面变化，主动重连")
                     await MainActor.run {
                         self.task?.cancel()
                         self.task = nil
