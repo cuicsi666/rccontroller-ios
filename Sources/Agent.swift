@@ -255,6 +255,16 @@ final class Agent {
         session = URLSession(configuration: cfg, delegate: TrustAllDelegate(), delegateQueue: nil)
     }
 
+    /// 触控专用低延迟会话：独立连接池 + 4 秒超时，不与画面流/状态刷新抢连接
+    lazy var fastSession: URLSession = {
+        let cfg = URLSessionConfiguration.ephemeral
+        cfg.timeoutIntervalForRequest = 4
+        cfg.timeoutIntervalForResource = 8
+        cfg.httpMaximumConnectionsPerHost = 8
+        cfg.requestCachePolicy = .reloadIgnoringLocalCacheData
+        return URLSession(configuration: cfg, delegate: TrustAllDelegate(), delegateQueue: nil)
+    }()
+
     var baseURL: URL? { lock.lock(); defer { lock.unlock() }; return _base }
     var token: String { lock.lock(); defer { lock.unlock() }; return _token }
 
@@ -381,29 +391,32 @@ final class Agent {
         return req
     }
 
+    /// 低延迟输入（独立会话）
+    private func sendFast(_ path: String, json: [String: Any]) async throws {
+        let body = try JSONSerialization.data(withJSONObject: json)
+        var req = try makeRequest(path, method: "POST", body: body)
+        req.timeoutInterval = 4
+        let (data, resp) = try await fastSession.data(for: req)
+        guard let http = resp as? HTTPURLResponse, http.statusCode == 200 else {
+            throw AgentError.http((resp as? HTTPURLResponse)?.statusCode ?? 500)
+        }
+        if let env = try? JSONDecoder().decode(Envelope<ExecResult>.self, from: data), let e = env.error {
+            throw AgentError.server(e)
+        }
+    }
+
     // MARK: 输入
 
-    func tap(x: Int, y: Int) async throws { _ = try await send("/api/input/tap", method: "POST", json: ["x": x, "y": y], as: ExecResult.self, timeout: 4) }
-    func swipe(x1: Int, y1: Int, x2: Int, y2: Int, ms: Int = 300) async throws {
-        _ = try await send("/api/input/swipe", method: "POST", json: ["x1": x1, "y1": y1, "x2": x2, "y2": y2, "ms": ms], as: ExecResult.self, timeout: 5)
-    }
+    func tap(x: Int, y: Int) async throws { try await sendFast("/api/input/tap", json: ["x": x, "y": y]) }
     func longPress(x: Int, y: Int, ms: Int = 800) async throws {
-        _ = try await send("/api/input/longpress", method: "POST", json: ["x": x, "y": y, "ms": ms], as: ExecResult.self, timeout: 5)
+        try await sendFast("/api/input/longpress", json: ["x": x, "y": y, "ms": ms])
     }
     func pinch(cx: Int, cy: Int, from: Int, to: Int, ms: Int = 320) async throws {
         _ = try await raw("/api/input/pinch", method: "POST",
                           json: ["CX": cx, "CY": cy, "Dist1": from, "Dist2": to, "MS": ms])
     }
 
-    func key(_ name: String) async throws { _ = try await send("/api/input/key", method: "POST", json: ["name": name], as: ExecResult.self, timeout: 4) }
-    func text(_ s: String) async throws -> ExecResult { try await send("/api/input/text", method: "POST", json: ["text": s], as: ExecResult.self, timeout: 6) }
-
-    // MARK: 应用
-
-    func apps(system: Bool = false) async throws -> [AppItem] {
-        let r = try await send("/api/apps?system=\(system ? 1 : 0)", as: AppsResult.self)
-        return r.apps
-    }
+    func key(_ name: String) async throws { try await sendFast("/api/input/key", json: ["name": name]) }
     func launch(_ pkg: String) async throws { _ = try await send("/api/app/launch", method: "POST", json: ["package": pkg], as: ExecResult.self) }
     func appCtl(_ pkg: String, _ action: String) async throws -> ExecResult {
         try await send("/api/app/ctl", method: "POST", json: ["package": pkg, "action": action], as: ExecResult.self)

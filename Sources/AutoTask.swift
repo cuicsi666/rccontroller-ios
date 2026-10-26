@@ -182,7 +182,7 @@ struct AutoBar: View {
             await store.refresh(force: true)
             while !Task.isCancelled {
                 await store.refresh()
-                try? await Task.sleep(nanoseconds: 10_000_000_000)
+                try? await Task.sleep(nanoseconds: 20_000_000_000)
             }
         }
         .sheet(isPresented: $showManager) {

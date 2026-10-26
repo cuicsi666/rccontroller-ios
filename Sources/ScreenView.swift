@@ -8,7 +8,7 @@ struct ScreenView: View {
     @StateObject private var audio = AudioStreamer()
     @StateObject private var h264 = H264Stream()
 
-    @AppStorage("rc.h264") private var useH264 = false
+    @AppStorage("rc.h264") private var useH264 = true
     @State private var showTextInput = false
     @State private var text = ""
     @State private var showQuality = false
@@ -22,6 +22,9 @@ struct ScreenView: View {
     @State private var h264StartedAt: Date?
     @State private var slowTicks = 0
     @State private var autoDowngraded = false
+    @State private var ripples: [Ripple] = []
+
+    struct Ripple: Identifiable { let id = UUID(); let p: CGPoint }
 
     var body: some View {
         VStack(spacing: 8) {
@@ -256,6 +259,13 @@ struct ScreenView: View {
                     .gesture(dragGesture(rect: rect))
                     .simultaneousGesture(pinchGesture(rect: rect))
 
+                ForEach(ripples) { r in
+                    Circle().stroke(Color.white.opacity(0.85), lineWidth: 2)
+                        .frame(width: 34, height: 34)
+                        .position(r.p)
+                        .allowsHitTesting(false)
+                }
+
                 if fullscreen {
                     VStack {
                         HStack {
@@ -356,11 +366,12 @@ struct ScreenView: View {
                     return (Int(Double(screen.width) * rx), Int(Double(screen.height) * ry))
                 }
                 let (sx, sy) = toDevice(start)
+                if dist < 14 { addRipple(start) }
                 if dist < 14 {
                     if dur >= 0.55 {
                         send { try await Agent.shared.longPress(x: sx, y: sy, ms: Int(dur * 1000)) }
                     } else {
-                        if Date().timeIntervalSince(lastTapAt) < 0.3 { return }
+                        if Date().timeIntervalSince(lastTapAt) < 0.06 { return }
                         lastTapAt = Date()
                         send { try await Agent.shared.tap(x: sx, y: sy) }
                     }
@@ -468,6 +479,14 @@ struct ScreenView: View {
                 try await op()
                 UIImpactFeedbackGenerator(style: .light).impactOccurred()
             } catch { flash(app.friendly(error)) }
+        }
+    }
+
+    private func addRipple(_ p: CGPoint) {
+        let r = Ripple(p: p)
+        withAnimation(.easeOut(duration: 0.18)) { ripples.append(r) }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            withAnimation(.easeIn(duration: 0.12)) { ripples.removeAll { $0.id == r.id } }
         }
     }
 
