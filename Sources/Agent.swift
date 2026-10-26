@@ -391,7 +391,9 @@ final class Agent {
         return req
     }
 
-    /// 低延迟输入（独立会话）
+    // MARK: 输入
+
+    /// 低延迟输入（独立会话，不排队等画面流）
     private func sendFast(_ path: String, json: [String: Any]) async throws {
         let body = try JSONSerialization.data(withJSONObject: json)
         var req = try makeRequest(path, method: "POST", body: body)
@@ -405,9 +407,10 @@ final class Agent {
         }
     }
 
-    // MARK: 输入
-
     func tap(x: Int, y: Int) async throws { try await sendFast("/api/input/tap", json: ["x": x, "y": y]) }
+    func swipe(x1: Int, y1: Int, x2: Int, y2: Int, ms: Int = 300) async throws {
+        try await sendFast("/api/input/swipe", json: ["x1": x1, "y1": y1, "x2": x2, "y2": y2, "ms": ms])
+    }
     func longPress(x: Int, y: Int, ms: Int = 800) async throws {
         try await sendFast("/api/input/longpress", json: ["x": x, "y": y, "ms": ms])
     }
@@ -417,6 +420,14 @@ final class Agent {
     }
 
     func key(_ name: String) async throws { try await sendFast("/api/input/key", json: ["name": name]) }
+    func text(_ s: String) async throws -> ExecResult { try await send("/api/input/text", method: "POST", json: ["text": s], as: ExecResult.self, timeout: 6) }
+
+    // MARK: 应用
+
+    func apps(system: Bool = false) async throws -> [AppItem] {
+        let r = try await send("/api/apps?system=\(system ? 1 : 0)", as: AppsResult.self)
+        return r.apps
+    }
     func launch(_ pkg: String) async throws { _ = try await send("/api/app/launch", method: "POST", json: ["package": pkg], as: ExecResult.self) }
     func appCtl(_ pkg: String, _ action: String) async throws -> ExecResult {
         try await send("/api/app/ctl", method: "POST", json: ["package": pkg, "action": action], as: ExecResult.self)
