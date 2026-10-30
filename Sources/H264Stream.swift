@@ -6,6 +6,8 @@ import UIKit
 /// 实验性：把手机 screenrecord 出来的 H.264 裸流解码显示
 final class H264Stream: NSObject, ObservableObject, URLSessionDataDelegate {
     @Published var ready = false
+    /// 是否已经收到过画面（用于断流重连时保留最后一帧，避免灰屏）
+    @Published var hasFrame = false
     @Published var error: String?
     @Published var fps: Double = 0
 
@@ -22,7 +24,7 @@ final class H264Stream: NSObject, ObservableObject, URLSessionDataDelegate {
     private var stallTask: Task<Void, Never>?
     private var pts: Int64 = 0
     private var streamStart: Date?
-    private var lastFlushAt = Date.distantPast
+    private var lastEnqueueAt = Date.distantPast
     private var stopping = false
 
     lazy var layer: AVSampleBufferDisplayLayer = {
@@ -265,15 +267,15 @@ final class H264Stream: NSObject, ObservableObject, URLSessionDataDelegate {
         let l = layer
         DispatchQueue.main.async {
             if l.status == .failed { l.flush() }
-            // 低延迟关键：显示层来不及消化时直接丢弃积压帧，保证看到的是最新画面
-            if !l.isReadyForMoreMediaData {
-                let now = Date()
-                if now.timeIntervalSince(self.lastFlushAt) > 0.4 {
-                    self.lastFlushAt = now
-                    l.flush()
-                }
+            // 队列满时丢弃这一帧（低延迟优先），但保证至少每 1 秒塞一帧，避免画面完全冻住。
+            // 绝不调用 flush() —— 那会清空显示层造成灰屏/黑屏。
+            let now = Date()
+            if !l.isReadyForMoreMediaData && l.status != .failed {
+                if now.timeIntervalSince(self.lastEnqueueAt) < 1.0 { return }
             }
+            self.lastEnqueueAt = now
             l.enqueue(sb)
+            self.hasFrame = true
             self.frames += 1
             let now = Date()
             let dt = now.timeIntervalSince(self.lastTick)

@@ -225,6 +225,21 @@ struct ScreenView: View {
                 if h264.ready {
                     H264View(layer: h264.layer)
                         .clipShape(RoundedRectangle(cornerRadius: fullscreen ? 0 : 14))
+                } else if useH264 && h264.hasFrame {
+                    // 断流/重连中：保留最后一帧画面，只叠一个小提示，避免整块变灰
+                    ZStack {
+                        H264View(layer: h264.layer)
+                            .clipShape(RoundedRectangle(cornerRadius: fullscreen ? 0 : 14))
+                            .opacity(0.85)
+                        HStack(spacing: 6) {
+                            ProgressView().scaleEffect(0.6).tint(.white)
+                            Text("重连中…").font(.system(size: 11, weight: .semibold))
+                        }
+                        .padding(.horizontal, 12).padding(.vertical, 7)
+                        .background(Color.black.opacity(0.55))
+                        .foregroundColor(.white)
+                        .clipShape(Capsule())
+                    }
                 } else if let img = fastPoller.image {
                     Image(uiImage: img)
                         .resizable()
