@@ -367,7 +367,7 @@ struct ScreenView: View {
                 }
                 // 拖动跟手：每 70ms 把这一小段位移发给手机，画面里手指会真的跟着走
                 let now = Date()
-                guard now.timeIntervalSince(lastDragAt) >= 0.07 else { return }
+                guard now.timeIntervalSince(lastDragAt) >= 0.05 else { return }
                 let prev = lastDragPoint ?? value.startLocation
                 let moved = hypot(value.location.x - prev.x, value.location.y - prev.y)
                 guard moved > 4 else { return }

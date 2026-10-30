@@ -22,6 +22,7 @@ final class H264Stream: NSObject, ObservableObject, URLSessionDataDelegate {
     private var stallTask: Task<Void, Never>?
     private var pts: Int64 = 0
     private var streamStart: Date?
+    private var lastFlushAt = Date.distantPast
     private var stopping = false
 
     lazy var layer: AVSampleBufferDisplayLayer = {
@@ -264,6 +265,14 @@ final class H264Stream: NSObject, ObservableObject, URLSessionDataDelegate {
         let l = layer
         DispatchQueue.main.async {
             if l.status == .failed { l.flush() }
+            // 低延迟关键：显示层来不及消化时直接丢弃积压帧，保证看到的是最新画面
+            if !l.isReadyForMoreMediaData {
+                let now = Date()
+                if now.timeIntervalSince(self.lastFlushAt) > 0.4 {
+                    self.lastFlushAt = now
+                    l.flush()
+                }
+            }
             l.enqueue(sb)
             self.frames += 1
             let now = Date()
