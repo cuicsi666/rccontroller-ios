@@ -362,20 +362,11 @@ struct ScreenView: View {
             .onChanged { value in
                 if pressStartTime == nil {
                     pressStartTime = Date()
-                    lastDragPoint = value.startLocation
-                    lastDragAt = .distantPast
                 }
-                // 拖动跟手：每 70ms 把这一小段位移发给手机，画面里手指会真的跟着走
-                let now = Date()
-                guard now.timeIntervalSince(lastDragAt) >= 0.05 else { return }
-                let prev = lastDragPoint ?? value.startLocation
-                let moved = hypot(value.location.x - prev.x, value.location.y - prev.y)
-                guard moved > 4 else { return }
-                let (sx, sy) = toDevice(prev, rect: rect)
-                let (ex, ey) = toDevice(value.location, rect: rect)
-                lastDragAt = now
-                lastDragPoint = value.location
-                sendInput { try await Agent.shared.swipe(x1: sx, y1: sy, x2: ex, y2: ey, ms: 70) }
+                // 注意：这里**不发送**分段手势。
+                // Android 的 input swipe 每发一次都是一套完整的 DOWN→MOVE→UP，
+                // 分段发等于多次独立手势，短位移那一段会被系统当成"点击"，造成误触（滑动末尾误开 App）。
+                // 因此改为抬手后一次性发送整段滑动。
             }
             .onEnded { value in
                 let dur = Date().timeIntervalSince(pressStartTime ?? Date())
@@ -400,14 +391,10 @@ struct ScreenView: View {
                         sendInput { try await Agent.shared.tap(x: sx, y: sy) }
                     }
                 } else {
-                    // 补最后一段（拖动过程中可能来不及发）
-                    let from = prev ?? start
-                    let moved = hypot(value.location.x - from.x, value.location.y - from.y)
-                    if moved > 4 {
-                        let (fx, fy) = toDevice(from, rect: rect)
-                        let (ex, ey) = toDevice(value.location, rect: rect)
-                        sendInput { try await Agent.shared.swipe(x1: fx, y1: fy, x2: ex, y2: ey, ms: 60) }
-                    }
+                    // 一次性发送完整滑动：时长跟实际拖动时间接近，轨迹更自然，也不会被当成点击
+                    let (ex, ey) = toDevice(value.location, rect: rect)
+                    let ms = Int(min(max(dur * 1000, 120), 1200))
+                    sendInput { try await Agent.shared.swipe(x1: sx, y1: sy, x2: ex, y2: ey, ms: ms) }
                 }
             }
     }
