@@ -269,11 +269,11 @@ final class H264Stream: NSObject, ObservableObject, URLSessionDataDelegate {
             if l.status == .failed { l.flush() }
             // 队列满时丢弃这一帧（低延迟优先），但保证至少每 1 秒塞一帧，避免画面完全冻住。
             // 绝不调用 flush() —— 那会清空显示层造成灰屏/黑屏。
-            let now = Date()
+            let enqNow = Date()
             if !l.isReadyForMoreMediaData && l.status != .failed {
-                if now.timeIntervalSince(self.lastEnqueueAt) < 1.0 { return }
+                if enqNow.timeIntervalSince(self.lastEnqueueAt) < 1.0 { return }
             }
-            self.lastEnqueueAt = now
+            self.lastEnqueueAt = enqNow
             l.enqueue(sb)
             self.hasFrame = true
             self.frames += 1
